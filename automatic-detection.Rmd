@@ -1,0 +1,405 @@
+---
+title: "Automatic Detection"
+author: "Howard Baek"
+date: "6/29/2021"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(lubridate)
+library(scales)
+library(factoextra)
+library(raster)
+library(tmap)
+library(png)
+library(gridExtra)
+library(dendextend)
+library(DescTools)
+library(imageryML)
+library(plotly)
+library(ggmap)
+theme_set(theme_light())
+```
+
+## Notes from paper
+
+Upwelling is defined by a certain temperature drop compared to the surrounding water temperature close to the coast. Such strong upwelling events could contribute to replenishing the euphotic zone with the nutritional components necessary for biological productivity.
+
+Automatic Detection Method: A simple temperature threshold value was specified. Upwelling was detected by calculating the temperature difference for each individual pixel from the zonal mean temperature, for every pixel line. 
+
+Two different temperature thresholds: 2 degrees / 3.5 degrees.
+
+## Function to import data from ERDDAP
+
+```{r}
+import_erddap <- function(start_date, stop_date, min_lat, max_lat, min_lon, max_lon) {
+  
+  url <- paste0("https://coastwatch.pfeg.noaa.gov/erddap/griddap/ncdcOisst21Agg.csv?sst%5B(",
+                start_date, "T12:00:00Z):(", stop_date, "T12:00:00Z)%5D%5B(0.0)%5D%5B(", 
+                min_lat, "):(", max_lat, ")%5D%5B(",
+                min_lon, "):(", max_lon, ")%5D&.draw=surface&.vars=longitude%7Clatitude%7Csst&.colorBar=%7C%7C%7C12%7C19%7C&.bgColor=0xffccccff")
+  
+  df <- read_csv(url)
+  
+  return(df)
+  
+}
+```
+
+
+
+## Data Preprocessing: Daily data
+
+Latitude (42.625, 52.125) and Longitude (229.875, 236.625) 
+
+### Degree Conversion:
+
+Longitude: 230 degree East - 360 = -130 degree West
+
+```{r}
+# I downloaded the data using read_csv("https://coastwatch.pfeg.noaa.gov/erddap/griddap/ncdcOisst21Agg.csv?sst%5B(2010-01-01T12:00:00Z):(2021-06-01T12:00:00Z)%5D%5B(0.0)%5D%5B(42.625):(52.125)%5D%5B(229.875):(236.625)%5D&.draw=surface&.vars=longitude%7Clatitude%7Csst&.colorBar=%7C%7C%7C12%7C19%7C&.bgColor=0xffccccff")
+# This big data is saved as pilot_data.csv
+
+# Raw data (last 10 years)
+df_raw <- read_csv("howard-analysis/pilot_data.csv")
+
+# Processed data
+df_processed <- df_raw %>% 
+  # Get rid of miscellaneous zlev in first row
+  slice(-1) %>% 
+  # zlev is a column of zeroes, so get rid of that
+  dplyr::select(-zlev) %>% 
+  # Convert into date
+  mutate(time = ymd_hms(time)) %>% 
+  # Set column names
+  rename(date = time,
+         lat = latitude,
+         lon = longitude) %>% 
+  # Convert date column to Date type
+  mutate(date = as.Date(date),
+         lat = as.numeric(lat),
+         lon = as.numeric(lon),
+         sst = as.numeric(sst))
+
+# mask out Puget Sound, Strait of Juan de Fuca and Georgia Strait
+masks <- list(c(235.4488, 236.884, 47.87651, 50.13138),
+              c(232.2913, 233.8987, 50.28689, 51.60871),
+              c(234.4154, 235.9654, 49.04283, 50.09251))
+
+for (m1 in masks) {
+  # index of Puget Sound, Strait of Juan de Fuca or Georgia Strait
+  mask_loc <- df_processed$lat <= m1[4] & df_processed$lat >= m1[3] &
+    df_processed$lon <= m1[2] & df_processed$lon >= m1[1]
+  # Change to NA
+  df_processed$sst[mask_loc] <- NA
+}
+```
+
+Have a look at raw data on plot
+```{r}
+df_processed %>% 
+  filter(date == "2010-01-01") %>% 
+  sample_n(20) %>% 
+  ggplot() +
+  geom_point(aes(lon, lat)) +
+  geom_point(aes(lon, lat), data = df_processed %>% 
+               filter(date == "2010-01-01",
+                      is.nan(sst) |
+                      is.na(sst)),
+             color = "red") +
+  geom_text(aes(lon, lat,label = sst),
+            data = df_processed %>% 
+              filter(date == "2010-01-01") %>% 
+              sample_n(500),
+            vjust = 0.5, hjust = 1) +
+  geom_vline(xintercept = 236.625, color = "midnightblue") +
+  geom_hline(yintercept = 52.125, color = "midnightblue") 
+```
+
+
+## Stamen map with SST
+```{r}
+# Create sample data (2010-01-01)
+sample_df <- df_processed %>% 
+  filter(date == "2010-01-01") %>% 
+  mutate(lon = lon - 360)
+
+# Give coordinates for map
+bbox <- c(left = 229.875 - 360, bottom = 42.625, right = 236.625 - 360, top = 52.125)
+# Get stamen map
+ocean_map <- get_stamenmap(bbox, zoom = 8)
+
+# Plot
+ggmap(ocean_map) +
+  geom_tile(aes(lon, lat, fill = sst),
+            alpha = 0.4,
+            data = sample_df) +
+  geom_rect(xmin = -125, xmax = -124.2,
+            ymin = 43, ymax = 44.4,
+            fill = NA,
+            color = "red",
+            size = 1) +
+  scale_fill_gradient2(midpoint = mean(sample_df$sst, na.rm = TRUE),
+                       low = "blue",
+                       mid = "white",
+                       high = "red") +
+  labs(x = NULL,
+       y = NULL,
+       fill = "Sea Surface Temperature (SST)",
+       title = "Latitude (42.625, 52.125) and Longitude (229.875, 236.625)")
+```
+
+
+## Algorithm to detect SST at coast (border between ocean and land)
+
+- 28 longitude values for each latitude
+- 2 degree threshold
+
+```{r}
+# Find which latitude has the most NA or NaN SST values
+sample_df %>% 
+  group_by(lat) %>% 
+  filter(is.na(sst) | is.nan(sst)) %>% 
+  count(lat, sort = TRUE)
+
+# Find3 SST values next to land (sst_coast_X)
+is_upwelling <- sample_df %>% 
+  group_by(lat) %>% 
+  # 1 longitude tick away from land
+  mutate(sst_coast_1 = last(na.omit(sst)),
+         # 4 longitude ticks away from land (1 degree in longitude)
+         sst_coast_2 = nth(na.omit(sst), -5),
+         # 8 longitude ticks away from land (2 degrees in longitude)
+         sst_coast_3 = nth(na.omit(sst), -9),
+         # 12 longitude ticks away from land (3 degrees in longitude)
+         sst_coast_4 = nth(na.omit(sst), -13)) %>% 
+  # Find difference between pixels
+  # Threshold: 0.15
+  summarize(is_upwelling_1_2 = sst_coast_2 - sst_coast_1 > 0.15,
+            is_upwelling_1_3 = sst_coast_3 - sst_coast_1 > 0.15,
+            is_upwelling_1_4 = sst_coast_4 - sst_coast_1 > 0.15) %>% 
+  ungroup() %>% 
+  group_by(lat) %>% 
+  # Check if any upwelling in each latitude
+  # first() because I want to return one row for each lat
+  summarise(is_upwelling_total = first(is_upwelling_1_2 | is_upwelling_1_3 | is_upwelling_1_4)) %>% 
+  ungroup()
+
+# upwelling latitudes
+is_upwelling %>% 
+  View()
+```
+
+## How to find Differentials: 
+
+Find difference between one next to coast and everything else 
+
+People are doing 1 or 2 degree off-shore. Having them only 0.25 degree apart is too close. You are seeing how wide these cold water plumes. You are getting wide / close plumes.
+
+DO NOT USE ABSOLUTE VALUE for temperature difference. Just want colder water on the coast. 
+
+- Latitude & Longitude: every 0.25 degrees
+
+
+## Function to detect upwelling and plot on stamen map
+
+- Join `sample_data` and `is_upwelling` to get `is_upweling_total` column into sample_data
+- Find (coast) longitude corresponding to row preceding last Na/NaN value in SST
+
+```{r}
+final_df <- sample_df %>% 
+  left_join(is_upwelling) %>%
+  ungroup() %>% 
+  group_by(lat) %>% 
+  # Find  (coast) longitude corresponding to row preceding last Na/NaN value in SST
+  mutate(last_lon = across(sst, ~ tail(lon[!is.na(.)], 1))) %>% 
+  ungroup() %>% 
+  mutate(last_lon = last_lon$sst)
+
+
+# Create df for rectangle coordinates
+rect_coord <- final_df %>% 
+  filter(is_upwelling_total) %>% 
+    select(lat, last_lon) %>% 
+    unique() %>% 
+    mutate(xmin = last_lon - 0.4,
+           xmax = last_lon + 0.01,
+           ymin = lat - 0.4,
+           ymax = lat + 0.4) 
+```
+
+
+```{r}
+# Plot
+ggplot() +
+  geom_tile(aes(lon, lat, fill = sst),
+            alpha = 0.4,
+            data = final_df) +
+  geom_rect(data = rect_coord,
+            mapping = aes(xmin = xmin, xmax = xmax,
+                          ymin = ymin, ymax = ymax),
+            size = 1,
+            fill = NA,
+            color = "red") +
+  scale_fill_gradient2(midpoint = mean(final_df$sst, na.rm = TRUE),
+                       low = "blue",
+                       mid = "white",
+                       high = "red") +
+  labs(x = NULL,
+       y = NULL,
+       fill = "Sea Surface Temperature (SST)",
+       title = "Latitude (42.625, 52.125) and Longitude (229.875, 236.625)")
+```
+
+
+
+## Function to plot rectangles around upwelling
+```{r}
+auto_detect <- function(df_raw, 
+                        custom_date, 
+                        lon_min = 229.875, lon_max = 236.625,
+                        lat_min = 42.625, lat_max = 52.125,
+                        threshold) {
+  
+  # Process data
+  df_processed <- df_raw %>% 
+    # Get rid of miscellaneous zlev in first row
+    slice(-1) %>% 
+    # zlev is a column of zeroes, so get rid of that
+    dplyr::select(-zlev) %>% 
+    # Convert into date
+    mutate(time = ymd_hms(time)) %>% 
+    # Set column names
+    rename(date = time,
+           lat = latitude,
+           lon = longitude) %>% 
+    # Convert date column to Date type
+    mutate(date = as.Date(date),
+           lat = as.numeric(lat),
+           lon = as.numeric(lon),
+           sst = as.numeric(sst))
+  
+  # mask out Puget Sound, Strait of Juan de Fuca and Georgia Strait
+  masks <- list(c(235.4488, 236.884, 47.87651, 50.13138),
+                c(232.2913, 233.8987, 50.28689, 51.60871),
+                c(234.4154, 235.9654, 49.04283, 50.09251))
+  
+  for (m1 in masks) {
+    # index of Puget Sound, Strait of Juan de Fuca or Georgia Strait
+    mask_loc <- df_processed$lat <= m1[4] & df_processed$lat >= m1[3] &
+      df_processed$lon <= m1[2] & df_processed$lon >= m1[1]
+    # Change to NA
+    df_processed$sst[mask_loc] <- NA
+  }
+  # Create df for specific date
+  df_processed_date <- df_processed %>% 
+    filter(date == custom_date) %>% 
+    mutate(lon = lon - 360)
+  
+  
+  # Stamen Map
+  # Give coordinates for map
+  bbox <- c(left = lon_min - 360, bottom = lat_min, right = lon_max - 360, top = lat_max)
+  # Get stamen map
+  ocean_map <- get_stamenmap(bbox, zoom = 8)
+  
+  
+  # Automatic Detection Method
+  # Find SST values next to land (sst_coast_X) and check if upwelling
+  is_upwelling <- df_processed_date %>% 
+    group_by(lat) %>% 
+     # 1 longitude tick away from land
+  mutate(sst_coast_1 = last(na.omit(sst)),
+         # 4 longitude ticks away from land (1 degree in longitude)
+         sst_coast_2 = nth(na.omit(sst), -5),
+         # 8 longitude ticks away from land (2 degrees in longitude)
+         sst_coast_3 = nth(na.omit(sst), -9),
+         # 12 longitude ticks away from land (3 degrees in longitude)
+         sst_coast_4 = nth(na.omit(sst), -13)) %>% 
+    # Find difference between pixels
+    # Threshold: 0.15
+    summarize(is_upwelling_1_2 = sst_coast_2 - sst_coast_1 > threshold,
+              is_upwelling_1_3 = sst_coast_3 - sst_coast_1 > threshold,
+              is_upwelling_1_4 = sst_coast_4 - sst_coast_1 > threshold) %>% 
+    ungroup() %>% 
+    group_by(lat) %>% 
+    # Check if any upwelling in each latitude
+    # first() because I want to return one row for each lat
+    summarise(is_upwelling_total = first(is_upwelling_1_2 | is_upwelling_1_3 | is_upwelling_1_4)) %>% 
+    ungroup()
+
+  
+  
+  
+  final_df <- df_processed_date %>% 
+    left_join(is_upwelling) %>%
+    ungroup() %>% 
+    group_by(lat) %>% 
+    # Find  (coast) longitude corresponding to row preceding last Na/NaN value in SST
+    mutate(last_lon = across(sst, ~ tail(lon[!is.na(.)], 1))) %>% 
+    ungroup() %>% 
+    mutate(last_lon = last_lon$sst)
+  
+  
+  # Create df for rectangle coordinates
+  rect_coord <- final_df %>% 
+    filter(is_upwelling_total) %>% 
+    select(lat, last_lon) %>% 
+    unique() %>% 
+    mutate(xmin = last_lon - 0.4,
+           xmax = last_lon + 0.01,
+           ymin = lat - 0.4,
+           ymax = lat + 0.4) 
+  
+  
+  # Plot
+  ggplot() +
+    geom_tile(aes(lon, lat, fill = sst),
+              alpha = 0.4,
+              data = final_df) +
+    geom_rect(data = rect_coord,
+              mapping = aes(xmin = xmin, xmax = xmax,
+                            ymin = ymin, ymax = ymax),
+              size = 1,
+              fill = NA,
+              color = "red") +
+    scale_fill_gradient2(midpoint = mean(final_df$sst, na.rm = TRUE),
+                         low = "blue",
+                         mid = "white",
+                         high = "red") +
+    labs(x = NULL,
+         y = NULL,
+         fill = "Sea Surface Temperature (SST)",
+         title = paste0("Date: ", custom_date,
+                        " Threshold: ", threshold, "degrees"),
+         subtitle = paste0("Latitude (",
+                        lat_min,
+                        ",",
+                        lat_max,
+                        ") ",
+                        " Longitude (",
+                        lon_min,
+                        ",",
+                        lon_max,
+                        ")")
+    )
+}
+```
+
+
+
+```{r}
+df_raw <- import_erddap(start_date = "2020-01-01", stop_date = "2021-06-01",
+                            min_lat = 34.125, max_lat = 52.625, min_lon = 225.625,
+                            max_lon = 244.125)
+
+auto_detect(df_raw, custom_date = "2021-06-01", threshold = 2)
+```
+
