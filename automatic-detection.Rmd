@@ -68,7 +68,7 @@ Longitude: 230 degree East - 360 = -130 degree West
 # This big data is saved as pilot_data.csv
 
 # Raw data (last 10 years)
-df_raw <- read_csv("howard-analysis/pilot_data.csv")
+df_raw <- read_csv("pilot_data.csv")
 
 # Processed data
 df_processed <- df_raw %>% 
@@ -112,7 +112,7 @@ df_processed %>%
   geom_point(aes(lon, lat), data = df_processed %>% 
                filter(date == "2010-01-01",
                       is.nan(sst) |
-                      is.na(sst)),
+                        is.na(sst)),
              color = "red") +
   geom_text(aes(lon, lat,label = sst),
             data = df_processed %>% 
@@ -169,7 +169,7 @@ sample_df %>%
   filter(is.na(sst) | is.nan(sst)) %>% 
   count(lat, sort = TRUE)
 
-# Find3 SST values next to land (sst_coast_X)
+# Find 4 SST values next to land (sst_coast_X)
 is_upwelling <- sample_df %>% 
   group_by(lat) %>% 
   # 1 longitude tick away from land
@@ -193,8 +193,8 @@ is_upwelling <- sample_df %>%
   ungroup()
 
 # upwelling latitudes
-is_upwelling %>% 
-  View()
+# is_upwelling %>% 
+#   View()
 ```
 
 ## How to find Differentials: 
@@ -227,12 +227,12 @@ final_df <- sample_df %>%
 # Create df for rectangle coordinates
 rect_coord <- final_df %>% 
   filter(is_upwelling_total) %>% 
-    select(lat, last_lon) %>% 
-    unique() %>% 
-    mutate(xmin = last_lon - 0.4,
-           xmax = last_lon + 0.01,
-           ymin = lat - 0.4,
-           ymax = lat + 0.4) 
+  select(lat, last_lon) %>% 
+  unique() %>% 
+  mutate(xmin = last_lon - 0.4,
+         xmax = last_lon + 0.01,
+         ymin = lat - 0.4,
+         ymax = lat + 0.4) 
 ```
 
 
@@ -315,14 +315,14 @@ auto_detect <- function(df_raw,
   # Find SST values next to land (sst_coast_X) and check if upwelling
   is_upwelling <- df_processed_date %>% 
     group_by(lat) %>% 
-     # 1 longitude tick away from land
-  mutate(sst_coast_1 = last(na.omit(sst)),
-         # 4 longitude ticks away from land (1 degree in longitude)
-         sst_coast_2 = nth(na.omit(sst), -5),
-         # 8 longitude ticks away from land (2 degrees in longitude)
-         sst_coast_3 = nth(na.omit(sst), -9),
-         # 12 longitude ticks away from land (3 degrees in longitude)
-         sst_coast_4 = nth(na.omit(sst), -13)) %>% 
+    # 1 longitude tick away from land
+    mutate(sst_coast_1 = last(na.omit(sst)),
+           # 4 longitude ticks away from land (1 degree in longitude)
+           sst_coast_2 = nth(na.omit(sst), -5),
+           # 8 longitude ticks away from land (2 degrees in longitude)
+           sst_coast_3 = nth(na.omit(sst), -9),
+           # 12 longitude ticks away from land (3 degrees in longitude)
+           sst_coast_4 = nth(na.omit(sst), -13)) %>% 
     # Find difference between pixels
     # Threshold: 0.15
     summarize(is_upwelling_1_2 = sst_coast_2 - sst_coast_1 > threshold,
@@ -334,7 +334,7 @@ auto_detect <- function(df_raw,
     # first() because I want to return one row for each lat
     summarise(is_upwelling_total = first(is_upwelling_1_2 | is_upwelling_1_3 | is_upwelling_1_4)) %>% 
     ungroup()
-
+  
   
   
   
@@ -380,26 +380,55 @@ auto_detect <- function(df_raw,
          title = paste0("Date: ", custom_date,
                         " Threshold: ", threshold, "degrees"),
          subtitle = paste0("Latitude (",
-                        lat_min,
-                        ",",
-                        lat_max,
-                        ") ",
-                        " Longitude (",
-                        lon_min,
-                        ",",
-                        lon_max,
-                        ")")
+                           lat_min,
+                           ",",
+                           lat_max,
+                           ") ",
+                           " Longitude (",
+                           lon_min,
+                           ",",
+                           lon_max,
+                           ")")
     )
 }
 ```
 
 
-
+## Workflow
 ```{r}
 df_raw <- import_erddap(start_date = "2020-01-01", stop_date = "2021-06-01",
-                            min_lat = 34.125, max_lat = 52.625, min_lon = 225.625,
-                            max_lon = 244.125)
+                        min_lat = 34.125, max_lat = 52.625, min_lon = 225.625,
+                        max_lon = 244.125)
 
 auto_detect(df_raw, custom_date = "2021-06-01", threshold = 2)
+```
+
+
+## Eli Feedback
+
+Maybe use a red dot instead of big red square to denote the upwelling.
+
+```{r}
+# Plot
+  ggplot() +
+    geom_tile(data = final_df,
+              mapping = aes(lon, lat, fill = sst),
+              alpha = 0.4) +
+  # Use red dot (x = last_lon, y = lat)
+    geom_point(data = final_df %>% filter(is_upwelling_total),
+              mapping = aes(x = last_lon, y = lat),
+              size = 1.5,
+              shape = 8,
+              color = "red") +
+    scale_fill_gradient2(midpoint = mean(final_df$sst, na.rm = TRUE),
+                         low = "blue",
+                         mid = "white",
+                         high = "red") +
+  labs(x = NULL,
+         y = NULL,
+         fill = "Sea Surface Temperature (SST)",
+         title = paste0("Date: ", "2010-01-01",
+                        " Threshold: ", 0.15, " degrees")
+    )
 ```
 
