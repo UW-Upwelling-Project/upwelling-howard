@@ -1,0 +1,29 @@
+---
+title: "Untitled"
+author: "Howard Baek"
+date: "7/4/2021"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(rerddap)
+```
+
+```{r}
+ui_search <- ed_search(query = "upwelling index", which = "tabledap", url = "https://coastwatch.pfeg.noaa.gov/erddap/")
+ui_search
+
+# Upwelling Index, 48N 125W, 6-hourly
+fourtyeight <- tabledap("erdUI486hr")
+fourtyeight
+```
+
+I checked and found that `fourtyeight` gives the same data table as that from https://coastwatch.pfeg.noaa.gov/erddap/tabledap/erdUI486hr.html
+This confirms the validity of the `tabledap()` function!
+
