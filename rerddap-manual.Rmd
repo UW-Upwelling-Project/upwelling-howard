@@ -15,6 +15,9 @@ knitr::opts_chunk$set(echo = TRUE)
 library(rerddap)
 ```
 
+
+## Upwelling Index
+
 ```{r}
 ui_search <- ed_search(query = "upwelling index", which = "tabledap", url = "https://coastwatch.pfeg.noaa.gov/erddap/")
 ui_search
@@ -24,6 +27,26 @@ fourtyeight <- tabledap("erdUI486hr")
 fourtyeight
 ```
 
+
+The result of `ed_search` gives us a df with title column, which is the Dataset title on ERDDAP 
+
 I checked and found that `fourtyeight` gives the same data table as that from https://coastwatch.pfeg.noaa.gov/erddap/tabledap/erdUI486hr.html
 This confirms the validity of the `tabledap()` function!
+
+
+
+## SST, Daily Optimum Interpolation
+
+```{r}
+sst_search <- ed_search(query = "sea surface temperature Optimum Interpolation", which = "griddap", url = "https://coastwatch.pfeg.noaa.gov/erddap/")
+sst_search
+```
+
+
+SST, Daily Optimum Interpolation (OI) dataset_id: 
+
+```{r}
+sst_info <- info("ncdcOisst21Agg_LonPM180")
+griddap(sst_info, latitude = c(22., 51.), longitude = c(-140., -105), time = c("2017-01-01", "2017-01-02"), fields = "sst")
+```
 
