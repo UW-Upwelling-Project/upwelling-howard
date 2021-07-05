@@ -12,6 +12,7 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ```{r}
+library(tidyverse)
 library(rerddap)
 ```
 
@@ -19,8 +20,12 @@ library(rerddap)
 ## Upwelling Index
 
 ```{r}
-ui_search <- ed_search(query = "upwelling index", which = "tabledap", url = "https://coastwatch.pfeg.noaa.gov/erddap/")
+ui_search <- ed_search(query = "upwelling index", which = "tabledap",
+                       url = "https://coastwatch.pfeg.noaa.gov/erddap/")
 ui_search
+
+ui_info <- info("erdUI486hr")
+ui_info
 
 # Upwelling Index, 48N 125W, 6-hourly
 fourtyeight <- tabledap("erdUI486hr")
@@ -31,6 +36,7 @@ fourtyeight
 The result of `ed_search` gives us a df with title column, which is the Dataset title on ERDDAP 
 
 I checked and found that `fourtyeight` gives the same data table as that from https://coastwatch.pfeg.noaa.gov/erddap/tabledap/erdUI486hr.html
+
 This confirms the validity of the `tabledap()` function!
 
 
@@ -47,6 +53,11 @@ SST, Daily Optimum Interpolation (OI) dataset_id:
 
 ```{r}
 sst_info <- info("ncdcOisst21Agg_LonPM180")
-griddap(sst_info, latitude = c(22., 51.), longitude = c(-140., -105), time = c("2017-01-01", "2017-01-02"), fields = "sst")
+sst_df <- griddap("ncdcOisst21Agg_LonPM180", latitude = c(25.375, 58.375), longitude = c(-141.875, -108.875), time = c("2021-06-19", "2021-06-19"), fields = "sst")$data
+
+sst_df
 ```
 
+I checked and found that `sst_df` gives the same data table as that from https://coastwatch.pfeg.noaa.gov/erddap/griddap/ncdcOisst21Agg.htmlTable?sst%5B(2021-06-19T12:00:00Z)%5D%5B(0.0)%5D%5B(25.375):(58.375)%5D%5B(218.125):(251.125)%5D&.draw=surface&.vars=longitude%7Clatitude%7Csst&.colorBar=%7C%7C%7C16%7C32%7C&.bgColor=0xffccccff
+
+This confirms the validity of the `griddap()` function!
