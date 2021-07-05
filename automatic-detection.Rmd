@@ -52,7 +52,7 @@ import_erddap <- function(start_date, stop_date, min_lat, max_lat, min_lon, max_
   
   print(".........DONE!!!")
   
-  file_name <- paste0("erddap_", start_date, "_", stop_date,
+  file_name <- paste0("data/erddap_", start_date, "_", stop_date,
                       "_", "lat_", min_lat, "_", max_lat,
                       "_lon_", min_lon, "_", max_lon, ".csv")
   
@@ -116,7 +116,7 @@ for (m1 in masks) {
 ```
 
 
-Have a look at raw data on plot
+## Raw data Plot
 ```{r}
 df_processed %>% 
   filter(date == "2010-01-01") %>% 
@@ -177,6 +177,12 @@ ggmap(ocean_map) +
 - 2 degree threshold
 
 ```{r}
+# Create sample data (2010-01-01)
+sample_df <- df_processed %>% 
+  filter(date == "2010-01-01") %>% 
+  mutate(lon = lon - 360)
+
+
 # Find which latitude has the most NA or NaN SST values
 sample_df %>% 
   group_by(lat) %>% 
@@ -237,16 +243,16 @@ final_df <- sample_df %>%
   ungroup() %>% 
   mutate(last_lon = last_lon$sst)
 
-
-# Create df for rectangle coordinates
-rect_coord <- final_df %>% 
-  filter(is_upwelling_total) %>% 
-  select(lat, last_lon) %>% 
-  unique() %>% 
-  mutate(xmin = last_lon - 0.4,
-         xmax = last_lon + 0.01,
-         ymin = lat - 0.4,
-         ymax = lat + 0.4) 
+# 
+# # Create df for rectangle coordinates
+# rect_coord <- final_df %>% 
+#   filter(is_upwelling_total) %>% 
+#   select(lat, last_lon) %>% 
+#   unique() %>% 
+#   mutate(xmin = last_lon - 0.4,
+#          xmax = last_lon + 0.01,
+#          ymin = lat - 0.4,
+#          ymax = lat + 0.4) 
 ```
 
 ## Upwelling Map
@@ -267,7 +273,8 @@ ggplot() +
   scale_fill_gradient2(midpoint = mean(final_df$sst, na.rm = TRUE),
                        low = "blue",
                        mid = "white",
-                       high = "red") +
+                       high = "red",
+                       na.value = "grey10") +
   theme(panel.grid.major = element_blank(), 
         panel.grid.minor = element_blank(),
         panel.background = element_blank(),
@@ -445,7 +452,8 @@ Maybe use a red dot instead of big red square to denote the upwelling.
     scale_fill_gradient2(midpoint = mean(final_df$sst, na.rm = TRUE),
                          low = "blue",
                          mid = "white",
-                         high = "red") +
+                         high = "red",
+                         na.value = "grey10") +
   labs(x = NULL,
          y = NULL,
          fill = "Sea Surface Temperature (SST)",
@@ -558,13 +566,14 @@ auto_detect <- function(df_raw,
     scale_fill_gradient2(midpoint = mean(final_df$sst, na.rm = TRUE),
                          low = "blue",
                          mid = "white",
-                         high = "red") +
+                         high = "red",
+                         na.value = "grey10") +
     theme(panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(),
-        panel.background = element_blank(),
-        panel.border = element_blank(),
-        legend.position = c(0.77, 0.84),
-        legend.background=element_blank()) +
+          panel.grid.minor = element_blank(),
+          panel.background = element_blank(),
+          panel.border = element_blank(),
+          legend.position = "bottom",
+          legend.background=element_blank()) +
     labs(x = NULL,
          y = NULL,
          fill = "Sea Surface Temperature (\u00B0C)",
@@ -588,17 +597,16 @@ auto_detect <- function(df_raw,
 ## Updated Workflow
 
 ```{r}
+# Read erddap and writes as csv
 import_erddap(start_date = "2020-01-01", stop_date = "2021-06-01",
                         min_lat = 40.625, max_lat = 50.625, min_lon = 229.875,
                         max_lon = 236.625)
 
-df_raw <- read_csv("data/2020-01-01_2021-06-01_lat_42.625_52.625_lon_229.875_236.625.csv")
+df_raw <- read_csv("data/erddap_2020-01-01_2021-06-01_lat_40.625_50.625_lon_229.875_236.625.csv")
 
 auto_detect(df_raw, custom_date = "2020-11-01", threshold = 2)
 ```
 
-
-https://coastwatch.pfeg.noaa.gov/erddap/tabledap/erdUI426hr.csv?time%2Cupwelling_index%2Cstation_id%2Clatitude%2Clongitude&time%3E=2021-05-24T00%3A00%3A00Z&time%3C=2021-05-31T18%3A00%3A00Z
 
 
 ## Compare Automatic Detection to Upwelling Index
@@ -627,4 +635,85 @@ upw_index_daily %>%
 ```
 
 
+## Annotate with Upwelling Index
+
+Search dataset
+```{r}
+ui_search <- ed_search(query = "upwelling index", which = "tabledap",
+                       url = "https://coastwatch.pfeg.noaa.gov/erddap/")
+ui_search$info
+```
+
+Upwelling Index, 45N 125W, 6-hourly                erdUI456hr
+Upwelling Index, 48N 125W, 6-hourly                erdUI486hr
+
+Call datatset
+```{r}
+first_df <- tabledap("erdUI456hr") %>% 
+  as_tibble() %>%  
+  dplyr::select(-station_id) %>%
+  # Convert date column to Date type
+  transmute(date = as.Date(time),
+            upwelling_index,
+            lat = as.numeric(latitude),
+            lon = as.numeric(longitude)) %>% 
+  filter(date == "2010-01-01") %>% 
+  group_by(date, lon, lat) %>% 
+  # Average 6 hour upwelling index to get daily index
+  summarise(upwelling_index_daily_avg = mean(upwelling_index), .groups = "drop")
+
+
+second_df <- tabledap("erdUI486hr") %>% 
+  as_tibble() %>%  
+  dplyr::select(-station_id) %>% 
+  # Convert date column to Date type
+  transmute(date = as.Date(time),
+            upwelling_index,
+            lat = as.numeric(latitude),
+            lon = as.numeric(longitude)) %>% 
+  filter(date == "2010-01-01") %>% 
+  group_by(date, lon, lat) %>% 
+  # Average 6 hour upwelling index to get daily index
+  summarise(upwelling_index_daily_avg = mean(upwelling_index), .groups = "drop")
+
+
+ui_df <- first_df %>% 
+  rbind(second_df) %>% 
+  mutate(upwelling_index_daily_avg = round(upwelling_index_daily_avg, 0))
+```
+
+
+## AD Plot annotated with UI
+
+```{r}
+# Plot
+ggplot() +
+  geom_tile(aes(lon, lat, fill = sst),
+            alpha = 0.4,
+            data = final_df) +
+  geom_point(data = final_df %>% filter(is_upwelling_total),
+              mapping = aes(x = last_lon, y = lat),
+              size = 1.5,
+              shape = 8,
+              color = "red") +
+  geom_label(data = ui_df, aes(x = lon, y = lat, label = upwelling_index_daily_avg)) +
+  scale_x_continuous(labels = label_number(suffix ="\u00b0")) +
+  scale_y_continuous(labels = label_number(suffix ="\u00b0")) +
+  scale_fill_gradient2(midpoint = mean(final_df$sst, na.rm = TRUE),
+                       low = "blue",
+                       mid = "white",
+                       high = "red",
+                       na.value = "grey10") +
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        panel.border = element_blank(),
+        legend.position = "bottom",
+        legend.background=element_blank()) +
+  labs(x = NULL,
+       y = NULL,
+       fill = "Sea Surface Temperature (SST)",
+       title = "Latitude (42.625, 52.125) and Longitude (229.875, 236.625)",
+       subtitle = "Annotated with Average Upwelling Index, 2010-01-01")
+```
 
