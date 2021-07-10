@@ -13,6 +13,7 @@ library(DescTools)
 library(imageryML)
 library(plotly)
 library(ggmap)
+library(shinycssloaders)
 theme_set(theme_light())
 
 
@@ -38,7 +39,7 @@ ui <- fluidPage(
         
         # Show a plot of the generated distribution
         mainPanel(
-           plotOutput("auto_detection_plot", width = 650, height = 650)
+           plotOutput("auto_detection_plot", width = 650, height = 650) %>% withSpinner(type = 8)
         )
     )
 )
