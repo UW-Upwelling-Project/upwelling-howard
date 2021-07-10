@@ -11,6 +11,8 @@ editor_options:
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+
+## Libraries
 ```{r}
 library(tidyverse)
 library(lubridate)
@@ -25,6 +27,8 @@ library(DescTools)
 library(imageryML)
 library(plotly)
 library(ggmap)
+library(rerddap)
+
 theme_set(theme_light())
 ```
 
@@ -194,22 +198,19 @@ is_upwelling <- sample_df %>%
   group_by(lat) %>% 
   # 1 longitude tick away from land
   mutate(sst_coast_1 = last(na.omit(sst)),
-         # 4 longitude ticks away from land (1 degree in longitude)
-         sst_coast_2 = nth(na.omit(sst), -5),
          # 8 longitude ticks away from land (2 degrees in longitude)
-         sst_coast_3 = nth(na.omit(sst), -9),
+         sst_coast_2 = nth(na.omit(sst), -9),
          # 12 longitude ticks away from land (3 degrees in longitude)
-         sst_coast_4 = nth(na.omit(sst), -13)) %>% 
+         sst_coast_3 = nth(na.omit(sst), -13)) %>% 
   # Find difference between pixels
   # Threshold: 0.15
   summarize(is_upwelling_1_2 = sst_coast_2 - sst_coast_1 > 0.15,
-            is_upwelling_1_3 = sst_coast_3 - sst_coast_1 > 0.15,
-            is_upwelling_1_4 = sst_coast_4 - sst_coast_1 > 0.15) %>% 
+            is_upwelling_1_3 = sst_coast_3 - sst_coast_1 > 0.15) %>% 
   ungroup() %>% 
   group_by(lat) %>% 
   # Check if any upwelling in each latitude
   # first() because I want to return one row for each lat
-  summarise(is_upwelling_total = first(is_upwelling_1_2 | is_upwelling_1_3 | is_upwelling_1_4)) %>% 
+  summarise(is_upwelling_total = first(is_upwelling_1_2 | is_upwelling_1_3)) %>% 
   ungroup()
 
 # upwelling latitudes
@@ -261,31 +262,38 @@ final_df <- sample_df %>%
 # Plot
 ggplot() +
   geom_tile(aes(lon, lat, fill = sst),
-            alpha = 0.4,
+            alpha = 0.9,
             data = final_df) +
   geom_point(data = final_df %>% filter(is_upwelling_total),
-              mapping = aes(x = last_lon, y = lat),
-              size = 1.5,
-              shape = 8,
-              color = "red") +
+             mapping = aes(x = last_lon, y = lat),
+             size = 1.5,
+             shape = 8,
+             color = "red") +
   scale_x_continuous(labels = label_number(suffix ="\u00b0")) +
   scale_y_continuous(labels = label_number(suffix ="\u00b0")) +
   scale_fill_gradient2(midpoint = mean(final_df$sst, na.rm = TRUE),
                        low = "blue",
                        mid = "white",
                        high = "red",
-                       na.value = "grey10") +
+                       na.value = "azure4") +
+  coord_quickmap() +
   theme(panel.grid.major = element_blank(), 
         panel.grid.minor = element_blank(),
         panel.background = element_blank(),
         panel.border = element_blank(),
-        legend.position = c(0.77, 0.84),
+        legend.position = "bottom",
         legend.background=element_blank()) +
   labs(x = NULL,
        y = NULL,
        fill = "Sea Surface Temperature (SST)",
        title = "Latitude (42.625, 52.125) and Longitude (229.875, 236.625)")
 ```
+
+
+## coord_quickmap()
+
+In general, map projections must account for the fact that the actual length (in km) of one degree of longitude varies between the equator and the pole. Near the equator, the ratio between the lengths of one degree of latitude and one degree of longitude is approximately 1. Near the pole, it tends towards infinity because the length of one degree of longitude tends towards 0. For regions that span only a few degrees and are not too close to the poles, setting the aspect ratio of the plot to the appropriate lat/lon ratio approximates the usual mercator projection. This is what coord_quickmap() does, and is much faster (particularly for complex plots like geom_tile()) at the expense of correctness.
+
 
 
 
@@ -439,27 +447,27 @@ Maybe use a red dot instead of big red square to denote the upwelling.
 
 ```{r}
 # Plot
-  ggplot() +
-    geom_tile(data = final_df,
-              mapping = aes(lon, lat, fill = sst),
-              alpha = 0.4) +
+ggplot() +
+  geom_tile(data = final_df,
+            mapping = aes(lon, lat, fill = sst),
+            alpha = 0.4) +
   # Use red dot (x = last_lon, y = lat)
-    geom_point(data = final_df %>% filter(is_upwelling_total),
-              mapping = aes(x = last_lon, y = lat),
-              size = 1.5,
-              shape = 8,
-              color = "red") +
-    scale_fill_gradient2(midpoint = mean(final_df$sst, na.rm = TRUE),
-                         low = "blue",
-                         mid = "white",
-                         high = "red",
-                         na.value = "grey10") +
+  geom_point(data = final_df %>% filter(is_upwelling_total),
+             mapping = aes(x = last_lon, y = lat),
+             size = 1.5,
+             shape = 8,
+             color = "red") +
+  scale_fill_gradient2(midpoint = mean(final_df$sst, na.rm = TRUE),
+                       low = "blue",
+                       mid = "white",
+                       high = "red",
+                       na.value = "grey10") +
   labs(x = NULL,
-         y = NULL,
-         fill = "Sea Surface Temperature (SST)",
-         title = paste0("Date: ", "2010-01-01",
-                        " Threshold: ", 0.15, " degrees")
-    )
+       y = NULL,
+       fill = "Sea Surface Temperature (SST)",
+       title = paste0("Date: ", "2010-01-01",
+                      " Threshold: ", 0.15, " degrees")
+  )
 ```
 
 
@@ -468,8 +476,8 @@ Maybe use a red dot instead of big red square to denote the upwelling.
 ```{r}
 auto_detect <- function(df_raw, 
                         custom_date, 
-                        lon_min = 229.875, lon_max = 236.625,
-                        lat_min = 42.625, lat_max = 52.125,
+                        min_lon, max_lon,
+                        min_lat, max_lat,
                         threshold) {
   
   # Process data
@@ -507,39 +515,26 @@ auto_detect <- function(df_raw,
     filter(date == custom_date) %>% 
     mutate(lon = lon - 360)
   
-  
-  # Stamen Map
-  # Give coordinates for map
-  bbox <- c(left = lon_min - 360, bottom = lat_min, right = lon_max - 360, top = lat_max)
-  # Get stamen map
-  ocean_map <- get_stamenmap(bbox, zoom = 8)
-  
-  
   # Automatic Detection Method
   # Find SST values next to land (sst_coast_X) and check if upwelling
   is_upwelling <- df_processed_date %>% 
     group_by(lat) %>% 
     # 1 longitude tick away from land
     mutate(sst_coast_1 = last(na.omit(sst)),
-           # 4 longitude ticks away from land (1 degree in longitude)
-           sst_coast_2 = nth(na.omit(sst), -5),
            # 8 longitude ticks away from land (2 degrees in longitude)
-           sst_coast_3 = nth(na.omit(sst), -9),
+           sst_coast_2 = nth(na.omit(sst), -9),
            # 12 longitude ticks away from land (3 degrees in longitude)
-           sst_coast_4 = nth(na.omit(sst), -13)) %>% 
+           sst_coast_3 = nth(na.omit(sst), -13)) %>% 
     # Find difference between pixels
     # Threshold: 0.15
     summarize(is_upwelling_1_2 = sst_coast_2 - sst_coast_1 > threshold,
-              is_upwelling_1_3 = sst_coast_3 - sst_coast_1 > threshold,
-              is_upwelling_1_4 = sst_coast_4 - sst_coast_1 > threshold) %>% 
+              is_upwelling_1_3 = sst_coast_3 - sst_coast_1 > threshold) %>% 
     ungroup() %>% 
     group_by(lat) %>% 
     # Check if any upwelling in each latitude
     # first() because I want to return one row for each lat
-    summarise(is_upwelling_total = first(is_upwelling_1_2 | is_upwelling_1_3 | is_upwelling_1_4)) %>% 
+    summarise(is_upwelling_total = first(is_upwelling_1_2 | is_upwelling_1_3)) %>% 
     ungroup()
-  
-  
   
   
   final_df <- df_processed_date %>% 
@@ -549,25 +544,44 @@ auto_detect <- function(df_raw,
     # Find  (coast) longitude corresponding to row preceding last Na/NaN value in SST
     mutate(last_lon = across(sst, ~ tail(lon[!is.na(.)], 1))) %>% 
     ungroup() %>% 
-    mutate(last_lon = last_lon$sst)
+    # last_lon: longitude off coast
+    mutate(last_lon = last_lon$sst,
+           # For blue dots
+           last_lon_minus_two = last_lon - 2,
+           last_lon_minus_three = last_lon - 3)
+  
+  # final_df for upwelling
+  final_df_upwelling <- final_df %>% 
+    filter(is_upwelling_total)
   
   # Plot
   ggplot() +
     geom_tile(aes(lon, lat, fill = sst),
-              alpha = 0.4,
+              alpha = 0.9,
               data = final_df) +
-    geom_point(data = final_df %>% filter(is_upwelling_total),
-              mapping = aes(x = last_lon, y = lat),
-              size = 1.5,
-              shape = 8,
-              color = "red") +
+    geom_point(data = final_df_upwelling,
+               mapping = aes(x = last_lon, y = lat),
+               size = 1.5,
+               shape = 8,
+               color = "red") +
+    geom_point(data = final_df_upwelling,
+               mapping = aes(x = last_lon_minus_two, y = lat),
+               size = 1.5,
+               shape = 8,
+               color = "blue") +
+    geom_point(data = final_df_upwelling,
+               mapping = aes(x = last_lon_minus_three, y = lat),
+               size = 1.5,
+               shape = 8,
+               color = "blue") +
     scale_x_continuous(labels = label_number(suffix ="\u00b0")) +
     scale_y_continuous(labels = label_number(suffix ="\u00b0")) +
     scale_fill_gradient2(midpoint = mean(final_df$sst, na.rm = TRUE),
                          low = "blue",
                          mid = "white",
                          high = "red",
-                         na.value = "grey10") +
+                         na.value = "grey20") +
+    coord_quickmap() +
     theme(panel.grid.major = element_blank(), 
           panel.grid.minor = element_blank(),
           panel.background = element_blank(),
@@ -580,16 +594,22 @@ auto_detect <- function(df_raw,
          title = paste0("Date: ", custom_date,
                         " Threshold: ", threshold, " \u00B0C"),
          subtitle = paste0("Latitude (",
-                           lat_min,
+                           min_lat,
                            "\u00B0,",
-                           lat_max,
+                           max_lat,
                            "\u00B0) ",
                            " Longitude (",
-                           lon_min - 360,
+                           min_lon - 360,
                            "\u00B0,",
-                           lon_max - 360,
-                           "\u00B0)")
+                           max_lon - 360,
+                           "\u00B0)",
+                           "\n\nRed dots are location of upwelling \nBlue dots are location of comparison to red dots")
     )
+  
+  # Use below to save plots
+  # file_name <- paste0(custom_date, "-autodetect.png")
+  # ggsave(file_name)
+  
 }
 ```
 
@@ -598,14 +618,319 @@ auto_detect <- function(df_raw,
 
 ```{r}
 # Read erddap and writes as csv
-import_erddap(start_date = "2020-01-01", stop_date = "2021-06-01",
-                        min_lat = 40.625, max_lat = 50.625, min_lon = 229.875,
-                        max_lon = 236.625)
+import_erddap(start_date = "2000-01-01", stop_date = "2021-06-01",
+              min_lat = 40.625, max_lat = 50.625, min_lon = 229.875,
+              max_lon = 236.625)
 
-df_raw <- read_csv("data/erddap_2020-01-01_2021-06-01_lat_40.625_50.625_lon_229.875_236.625.csv")
+df_raw <- read_csv("data/erddap_2000-01-01_2021-06-01_lat_40.625_50.625_lon_229.875_236.625.csv")
 
-auto_detect(df_raw, custom_date = "2020-11-01", threshold = 2)
+auto_detect(df_raw, custom_date = "2000-10-01", threshold = 2.5,
+            min_lat = 40.625, max_lat = 50.625, min_lon = 229.875,
+            max_lon = 236.625)
 ```
+
+
+
+## Past 5 Years: Proportion of Upwelling
+
+```{r}
+# Read erddap and write as csv
+# import_erddap(start_date = "2015-01-01", stop_date = "2020-12-31",
+#               min_lat = 40.625, max_lat = 50.625, min_lon = 229.875,
+#               max_lon = 236.625)
+
+# Data from past 5 years
+df_raw <- read_csv("data/erddap_2015-01-01_2020-12-31_lat_40.625_50.625_lon_229.875_236.625.csv")
+
+
+# Process data
+df_processed <- df_raw %>% 
+  # Get rid of miscellaneous zlev in first row
+  slice(-1) %>% 
+  # zlev is a column of zeroes, so get rid of that
+  dplyr::select(-zlev) %>% 
+  # Convert into date
+  mutate(time = ymd_hms(time)) %>% 
+  # Set column names
+  rename(date = time,
+         lat = latitude,
+         lon = longitude) %>% 
+  # Convert date column to Date type
+  mutate(date = as.Date(date),
+         lat = as.numeric(lat),
+         lon = as.numeric(lon),
+         sst = as.numeric(sst))
+
+# mask out Puget Sound, Strait of Juan de Fuca and Georgia Strait
+masks <- list(c(235.4488, 236.884, 47.87651, 50.13138),
+              c(232.2913, 233.8987, 50.28689, 51.60871),
+              c(234.4154, 235.9654, 49.04283, 50.09251))
+
+for (m1 in masks) {
+  # index of Puget Sound, Strait of Juan de Fuca or Georgia Strait
+  mask_loc <- df_processed$lat <= m1[4] & df_processed$lat >= m1[3] &
+    df_processed$lon <= m1[2] & df_processed$lon >= m1[1]
+  # Change to NA
+  df_processed$sst[mask_loc] <- NA
+}
+
+
+# Create df for specific date
+df_processed_date <- df_processed %>% 
+  mutate(lon = lon - 360)
+
+# Automatic Detection Method
+# Find SST values next to land (sst_coast_X) and check if upwelling
+is_upwelling <- df_processed_date %>% 
+  group_by(date, lat) %>% 
+  # 1 longitude tick away from land
+  mutate(sst_coast_1 = last(na.omit(sst)),
+         # 8 longitude ticks away from land (2 degrees in longitude)
+         sst_coast_2 = nth(na.omit(sst), -9),
+         # 12 longitude ticks away from land (3 degrees in longitude)
+         sst_coast_3 = nth(na.omit(sst), -13)) %>% 
+  ungroup() %>% 
+  group_by(date, lat) %>% 
+  # Find difference between pixels
+  # Threshold: 0.15
+  summarize(is_upwelling_1_2 = sst_coast_2 - sst_coast_1 > 2.5,
+            is_upwelling_1_3 = sst_coast_3 - sst_coast_1 > 2.5) %>% 
+  ungroup() %>% 
+  group_by(date, lat) %>% 
+  # Check if any upwelling in each latitude
+  # first() because I want to return one row for each lat
+  summarise(is_upwelling_total = first(is_upwelling_1_2 | is_upwelling_1_3)) %>% 
+  ungroup()
+
+# Look at proportion of upwelling
+is_upwelling %>% 
+  group_by(date) %>% 
+  summarise(upwelling_prop = mean(is_upwelling_total, na.rm = TRUE)) %>% 
+  filter(upwelling_prop > 0) %>% 
+  arrange(desc(upwelling_prop))
+
+
+final_df <- df_processed_date %>% 
+  left_join(is_upwelling, by = c("date", "lat")) %>%
+  ungroup() %>% 
+  # last_lon: longitude off coast
+  mutate(year = year(date),
+         month = month(date),
+         day = day(date))
+
+
+# Don't need to na.rm = TRUE because you want to preserve the land
+summarise_by_month <- function(tbl) {
+  
+  tbl %>%
+    group_by(month, lat, lon) %>% 
+    summarise(upwelling_prop = mean(is_upwelling_total), .groups = "drop")
+}
+
+
+# Don't need to na.rm = TRUE because you want to preserve the land
+summarise_by_day <- function(tbl) {
+  
+  tbl %>%
+    group_by(day, lat, lon) %>% 
+    summarise(upwelling_prop = mean(is_upwelling_total), .groups = "drop")
+  
+}
+
+
+# Don't need to na.rm = TRUE because you want to preserve the land
+summarise_by_year <- function(tbl) {
+  
+  tbl %>%
+    group_by(year, lat, lon) %>% 
+    summarise(upwelling_prop = mean(is_upwelling_total), .groups = "drop")
+  
+}
+
+
+
+
+
+  
+```
+
+
+Plot
+```{r}
+final_df_processed <- final_df %>%
+  summarise_by_month()
+
+final_df_land <- final_df %>%
+  filter(is.na(sst))
+
+# Plot
+ggplot() +
+  # Upwelling proportion
+  geom_tile(aes(lon, lat, fill = upwelling_prop),
+            data = final_df_processed) +
+  # Add land
+  geom_tile(aes(lon, lat, fill = sst),
+            data = final_df_land) +
+  scale_x_continuous(labels = label_number(suffix ="\u00b0")) +
+  scale_y_continuous(labels = label_number(suffix ="\u00b0")) +
+  scale_fill_gradient2(midpoint = mean(final_df_processed$upwelling_prop, na.rm = TRUE),
+                       low = "blue",
+                       mid = "white",
+                       high = "red",
+                       na.value = "grey20",
+                       labels = percent,
+                       breaks = c(0, 0.3, 0.5)) +
+  facet_wrap(~year) +
+  coord_quickmap() +
+  labs(y = "",
+       fill = "Upwelling Percentage") +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        panel.border = element_blank(),
+        legend.position = "bottom",
+        legend.background=element_blank()) 
+```
+
+
+## Past 20 Years: Proportion of Upwelling
+
+```{r}
+df_raw <- read_csv("data/erddap_2000-01-01_2021-06-01_lat_40.625_50.625_lon_229.875_236.625.csv")
+
+
+# Process data
+df_processed <- df_raw %>% 
+  # Get rid of miscellaneous zlev in first row
+  slice(-1) %>% 
+  # zlev is a column of zeroes, so get rid of that
+  dplyr::select(-zlev) %>% 
+  # Convert into date
+  mutate(time = ymd_hms(time)) %>% 
+  # Set column names
+  rename(date = time,
+         lat = latitude,
+         lon = longitude) %>% 
+  # Convert date column to Date type
+  mutate(date = as.Date(date),
+         lat = as.numeric(lat),
+         lon = as.numeric(lon),
+         sst = as.numeric(sst))
+
+# mask out Puget Sound, Strait of Juan de Fuca and Georgia Strait
+masks <- list(c(235.4488, 236.884, 47.87651, 50.13138),
+              c(232.2913, 233.8987, 50.28689, 51.60871),
+              c(234.4154, 235.9654, 49.04283, 50.09251))
+
+for (m1 in masks) {
+  # index of Puget Sound, Strait of Juan de Fuca or Georgia Strait
+  mask_loc <- df_processed$lat <= m1[4] & df_processed$lat >= m1[3] &
+    df_processed$lon <= m1[2] & df_processed$lon >= m1[1]
+  # Change to NA
+  df_processed$sst[mask_loc] <- NA
+}
+
+
+# Create df for specific date
+df_processed_date <- df_processed %>% 
+  mutate(lon = lon - 360)
+
+# Automatic Detection Method
+# Find SST values next to land (sst_coast_X) and check if upwelling
+is_upwelling <- df_processed_date %>% 
+  group_by(date, lat) %>% 
+  # 1 longitude tick away from land
+  mutate(sst_coast_1 = last(na.omit(sst)),
+         # 8 longitude ticks away from land (2 degrees in longitude)
+         sst_coast_2 = nth(na.omit(sst), -9),
+         # 12 longitude ticks away from land (3 degrees in longitude)
+         sst_coast_3 = nth(na.omit(sst), -13)) %>% 
+  ungroup() %>% 
+  group_by(date, lat) %>% 
+  # Find difference between pixels
+  # Threshold: 2.5
+  summarize(is_upwelling_1_2 = sst_coast_2 - sst_coast_1 > 2.5,
+            is_upwelling_1_3 = sst_coast_3 - sst_coast_1 > 2.5) %>% 
+  ungroup() %>% 
+  group_by(date, lat) %>% 
+  # Check if any upwelling in each latitude
+  # first() because I want to return one row for each lat
+  summarise(is_upwelling_total = first(is_upwelling_1_2 | is_upwelling_1_3)) %>% 
+  ungroup()
+
+
+final_df <- df_processed_date %>% 
+  left_join(is_upwelling, by = c("date", "lat")) %>%
+  ungroup() %>% 
+  # last_lon: longitude off coast
+  mutate(year = year(date),
+         month = month(date),
+         day = day(date))
+
+
+# Don't need to na.rm = TRUE because you want to preserve the land
+summarise_by_month <- function(tbl) {
+  
+  tbl %>%
+    group_by(month, lat, lon) %>% 
+    summarise(upwelling_prop = mean(is_upwelling_total), .groups = "drop")
+}
+
+
+# Don't need to na.rm = TRUE because you want to preserve the land
+summarise_by_year <- function(tbl) {
+  
+  tbl %>%
+    group_by(year, lat, lon) %>% 
+    summarise(upwelling_prop = mean(is_upwelling_total), .groups = "drop")
+  
+}
+
+
+
+final_df_processed <- final_df %>%
+  summarise_by_year()
+
+final_df_land <- final_df %>%
+  filter(is.na(sst))
+
+# Plot
+ggplot() +
+  # Upwelling proportion
+  geom_tile(aes(lon, lat, fill = upwelling_prop),
+            data = final_df_processed) +
+  # Add land
+  geom_tile(aes(lon, lat, fill = sst),
+            data = final_df_land) +
+  scale_x_continuous(labels = label_number(suffix ="\u00b0")) +
+  scale_y_continuous(labels = label_number(suffix ="\u00b0")) +
+  scale_fill_gradient2(midpoint = mean(final_df_processed$upwelling_prop, na.rm = TRUE),
+                       low = "blue",
+                       mid = "white",
+                       high = "red",
+                       na.value = "grey20",
+                       labels = percent,
+                       breaks = c(0, 0.2, 0.5)) +
+  facet_wrap(~year) +
+  coord_quickmap() +
+  labs(y = "",
+       fill = "Upwelling Percentage",
+       title = "Upwelling Percentage by Latitude: 2000 ~ 2021") +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        panel.border = element_blank(),
+        legend.position = "bottom",
+        legend.background=element_blank()) 
+
+```
+
 
 
 
@@ -617,7 +942,7 @@ upw_index <- read_csv("data/erdUI426hr_c91c_fb11_7659.csv") %>%
   select(-station_id) %>% 
   # Get rid of miscellaneous first row
   slice(-1) %>% 
-   # Convert date column to Date type
+  # Convert date column to Date type
   transmute(date = as.Date(time),
             upwelling_index,
             lat = as.numeric(latitude),
@@ -646,6 +971,16 @@ ui_search$info
 
 Upwelling Index, 45N 125W, 6-hourly                erdUI456hr
 Upwelling Index, 48N 125W, 6-hourly                erdUI486hr
+
+
+Find latitude or longitude
+```{r}
+ui_search_df <- ui_search$info
+
+ui_search_df %>% 
+  filter(str_detect(title, "125W"))
+```
+
 
 Call datatset
 ```{r}
@@ -683,19 +1018,74 @@ ui_df <- first_df %>%
 ```
 
 
+Monthly upwelling index
+```{r}
+ui <- tabledap("erdUI456hr") %>% 
+    as_tibble() %>%  
+    dplyr::select(-station_id) %>%
+    # Convert date column to Date type
+    transmute(date = as.Date(time),
+              upwelling_index,
+              lat = as.numeric(latitude),
+              lon = as.numeric(longitude)) %>% 
+  filter(date >= "1980-01-01")
+
+ui %>% 
+  mutate(year = year(date),
+         month = month(date),
+         day = day(date)) %>% 
+  group_by(year, month, lon, lat) %>% 
+  summarise(monthly_upwelling_index = mean(upwelling_index, na.rm = TRUE), .groups = "drop") %>% 
+  mutate(monthly_date = make_date(year, month, 1)) %>% 
+  ggplot(aes(monthly_date, monthly_upwelling_index)) +
+  geom_line(color = "midnightblue") +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  labs(x = NULL,
+       y = "Monthly Upwelling Index",
+       title = "Monthly Averages of Upwelling Index \nFrom 1980-01-01 to 2021-05-31")
+```
+
+
+Draw two lines: June, July, Aug, Sept, Oct / rest
+```{r}
+ui %>% 
+  mutate(year = year(date),
+         month = month(date),
+         day = day(date)) %>%
+  group_by(year, month, lon, lat) %>% 
+  summarise(monthly_upwelling_index = mean(upwelling_index, na.rm = TRUE), .groups = "drop") %>% 
+  mutate(monthly_date = make_date(year, month, 1)) %>%
+  mutate(is_upwelling_season = if_else(month %in% c(6, 7, 8, 9, 10), 
+                                       "Upwelling Months (6, 7, 8, 9, 10)",
+                                       "Non-Upwelling Months (1, 2, 3, 4, 5, 11, 12)")) %>%
+  ggplot(aes(monthly_date, monthly_upwelling_index)) +
+  geom_line(aes(color = is_upwelling_season), show.legend = FALSE) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  facet_wrap(~is_upwelling_season) +
+  labs(x = NULL,
+       y = "Monthly Upwelling Index",
+       title = "Monthly Averages of Upwelling Index \nFrom 1980-01-01 to 2021-05-31")
+  
+```
+
+
+
+
+
+
 ## AD Plot annotated with UI
 
 ```{r}
 # Plot
 ggplot() +
   geom_tile(aes(lon, lat, fill = sst),
-            alpha = 0.4,
+            alpha = 0.9,
             data = final_df) +
   geom_point(data = final_df %>% filter(is_upwelling_total),
-              mapping = aes(x = last_lon, y = lat),
-              size = 1.5,
-              shape = 8,
-              color = "red") +
+             mapping = aes(x = last_lon, y = lat),
+             size = 1.5,
+             shape = 8,
+             color = "red") +
   geom_label(data = ui_df, aes(x = lon, y = lat, label = upwelling_index_daily_avg)) +
   scale_x_continuous(labels = label_number(suffix ="\u00b0")) +
   scale_y_continuous(labels = label_number(suffix ="\u00b0")) +
@@ -703,7 +1093,8 @@ ggplot() +
                        low = "blue",
                        mid = "white",
                        high = "red",
-                       na.value = "grey10") +
+                       na.value = "grey20") +
+    coord_quickmap() +
   theme(panel.grid.major = element_blank(), 
         panel.grid.minor = element_blank(),
         panel.background = element_blank(),
@@ -714,6 +1105,6 @@ ggplot() +
        y = NULL,
        fill = "Sea Surface Temperature (SST)",
        title = "Latitude (42.625, 52.125) and Longitude (229.875, 236.625)",
-       subtitle = "Annotated with Average Upwelling Index, 2010-01-01")
+       subtitle = "Annotated with Average Upwelling Index on 2010-01-01")
 ```
 

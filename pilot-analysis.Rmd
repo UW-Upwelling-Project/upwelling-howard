@@ -824,6 +824,12 @@ Weak upwelling is like upwelling in small regions (only north, only south, etc)
 
 
 ## Upwelling Index
+
+> Positive values are, in general, the result of equatorward wind stress. Negative values imply downwelling, the onshore advection of surface waters accompanied by a downward displacement of water.
+
+Source: https://oceanview.pfeg.noaa.gov/products/upwelling/bakun
+
+
 ```{r}
 up_index <- read_csv("./howard-analysis/upwelling_index.csv") %>% 
    mutate(year = year(time),
