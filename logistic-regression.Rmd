@@ -1,0 +1,158 @@
+---
+title: "Logistic Regression"
+author: "Howard Baek"
+date: "7/14/2021"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+Plot 1)
+
+Daily at different 4 latitudes. X-axis is upwelling index (continuous); Y-axis is 0, 1 (whether categorized as upwelling via your algorithm)
+
+The closest: SST erddap data with latitude 42.125. there's no 42.000 latitude
+
+## Libraries
+```{r}
+library(tidyverse)
+library(lubridate)
+library(scales)
+library(factoextra)
+library(raster)
+library(tmap)
+library(png)
+library(gridExtra)
+library(dendextend)
+library(DescTools)
+library(imageryML)
+library(plotly)
+library(ggmap)
+library(rerddap)
+
+theme_set(theme_light())
+```
+
+## Load data
+
+```{r}
+df_raw <- read_csv("data/erddap_2000-01-01_2021-06-01_lat_40.625_50.625_lon_229.875_236.625.csv")
+
+# Process data
+df_processed <- df_raw %>% 
+  # Get rid of miscellaneous zlev in first row
+  slice(-1) %>% 
+  # zlev is a column of zeroes, so get rid of that
+  dplyr::select(-zlev) %>% 
+  # Convert into date
+  mutate(time = ymd_hms(time)) %>% 
+  # Set column names
+  rename(date = time,
+         lat = latitude,
+         lon = longitude) %>% 
+  # Convert date column to Date type
+  mutate(date = as.Date(date),
+         lat = as.numeric(lat),
+         lon = as.numeric(lon),
+         sst = as.numeric(sst))
+
+# mask out Puget Sound, Strait of Juan de Fuca and Georgia Strait
+masks <- list(c(235.4488, 236.884, 47.87651, 50.13138),
+              c(232.2913, 233.8987, 50.28689, 51.60871),
+              c(234.4154, 235.9654, 49.04283, 50.09251))
+
+for (m1 in masks) {
+  # index of Puget Sound, Strait of Juan de Fuca or Georgia Strait
+  mask_loc <- df_processed$lat <= m1[4] & df_processed$lat >= m1[3] &
+    df_processed$lon <= m1[2] & df_processed$lon >= m1[1]
+  # Change to NA
+  df_processed$sst[mask_loc] <- NA
+}
+
+# Create df for specific latitude: 42.125N and -125.125 longitude
+df_processed_42_125 <- df_processed %>% 
+  filter(lat == 42.125) %>% 
+  mutate(lon = lon - 360) 
+
+# Automatic Detection Method
+# Find SST values next to land (sst_coast_X) and check if upwelling
+is_upwelling <- df_processed_42_125 %>% 
+  group_by(date, lat) %>% 
+  # 1 longitude tick away from land
+  mutate(sst_coast_1 = last(na.omit(sst)),
+         # 8 longitude ticks away from land (2 degrees in longitude)
+         sst_coast_2 = nth(na.omit(sst), -9),
+         # 12 longitude ticks away from land (3 degrees in longitude)
+         sst_coast_3 = nth(na.omit(sst), -13)) %>% 
+  # Find difference between pixels
+  # Threshold: 0.15
+  summarize(is_upwelling_1_2 = sst_coast_2 - sst_coast_1 > 2,
+            is_upwelling_1_3 = sst_coast_3 - sst_coast_1 > 2) %>% 
+  ungroup() %>% 
+  group_by(date, lat) %>% 
+  # Check if any upwelling in each latitude
+  # first() because I want to return one row for each lat
+  summarise(is_upwelling_total = first(is_upwelling_1_2 | is_upwelling_1_3)) %>% 
+  ungroup()
+
+is_upwelling
+```
+
+is_upwelling contains daily date, latitude, and is_upwelling (TRUE, FALSE)
+
+
+## Get Upwelling Index data
+
+Upwelling Index, 42N 125W, 6-hourly: erdUI426hr
+
+```{r}
+ui <- tabledap("erdUI426hr") %>% 
+  as_tibble() %>% 
+  dplyr::select(-station_id) %>%
+  # Convert date column to Date type
+  transmute(date = as.Date(time),
+            upwelling_index,
+            lat = as.numeric(latitude),
+            lon = as.numeric(longitude)) %>% 
+  filter(date >= "2000-01-01") %>% 
+  group_by(date, lon, lat) %>% 
+  # Average 6 hour upwelling index to get daily index
+  summarise(upwelling_index_daily_avg = mean(upwelling_index), .groups = "drop")
+
+ui
+```
+
+
+
+## Merge is_upwelling with ui data
+
+`is_upwelling` only has data until 2021-06-01
+`ui` has data until 2021-06-30
+
+so ui has 30ish more rows
+
+```{r}
+final_df <- ui %>% 
+  inner_join(is_upwelling, by = "date") %>% 
+  select(date, lat = lat.x, lon, upwelling_index_daily_avg, is_upwelling_total) %>% 
+  mutate(is_upwelling_total = as.numeric(is_upwelling_total))
+
+final_df
+```
+
+
+## Logistic Regression
+
+```{r}
+logistic_fit <- glm(is_upwelling_total ~ upwelling_index_daily_avg, data = final_df, family = "binomial")
+
+summary(logistic_fit)
+```
+
+Shows that daily avg of upwelling index has a statistically significant, positive relationship with whether upwelling or not.
+
