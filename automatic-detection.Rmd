@@ -622,6 +622,7 @@ import_erddap(start_date = "2000-01-01", stop_date = "2021-06-01",
               min_lat = 40.625, max_lat = 50.625, min_lon = 229.875,
               max_lon = 236.625)
 
+# SST 
 df_raw <- read_csv("data/erddap_2000-01-01_2021-06-01_lat_40.625_50.625_lon_229.875_236.625.csv")
 
 auto_detect(df_raw, custom_date = "2000-10-01", threshold = 2.5,
@@ -897,7 +898,7 @@ final_df_processed <- final_df %>%
 final_df_land <- final_df %>%
   filter(is.na(sst))
 
-# Plot
+# By Year
 ggplot() +
   # Upwelling proportion
   geom_tile(aes(lon, lat, fill = upwelling_prop),
@@ -913,12 +914,12 @@ ggplot() +
                        high = "red",
                        na.value = "grey20",
                        labels = percent,
-                       breaks = c(0, 0.2, 0.5)) +
+                       breaks = c(0, 0.25, 0.5)) +
   facet_wrap(~year) +
   coord_quickmap() +
   labs(y = "",
        fill = "Upwelling Percentage",
-       title = "Upwelling Percentage by Latitude: 2000 ~ 2021") +
+       title = "Upwelling Percentage by Latitude: 1982 ~ 2021") +
   theme(axis.title.x=element_blank(),
         axis.text.x=element_blank(),
         axis.ticks.x=element_blank(),
@@ -929,8 +930,113 @@ ggplot() +
         legend.position = "bottom",
         legend.background=element_blank()) 
 
+
+
+# By Month
+final_df_processed <- final_df %>%
+  summarise_by_month()
+
+
+ggplot() +
+  # Upwelling proportion
+  geom_tile(aes(lon, lat, fill = upwelling_prop),
+            data = final_df_processed) +
+  # Add land
+  geom_tile(aes(lon, lat, fill = sst),
+            data = final_df_land) +
+  scale_x_continuous(labels = label_number(suffix ="\u00b0")) +
+  scale_y_continuous(labels = label_number(suffix ="\u00b0")) +
+  scale_fill_gradient2(midpoint = mean(final_df_processed$upwelling_prop, na.rm = TRUE),
+                       low = "blue",
+                       mid = "white",
+                       high = "red",
+                       na.value = "grey20",
+                       labels = percent,
+                       breaks = c(0, 0.25, 0.5, 0.9)) +
+  facet_wrap(~month) +
+  coord_quickmap() +
+  labs(y = "",
+       fill = "Upwelling Percentage",
+       title = "Upwelling Percentage by Latitude: 1982 ~ 2021") +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        panel.border = element_blank(),
+        legend.position = "bottom",
+        legend.background=element_blank()) 
+
+
 ```
 
+
+## Line Plot of Proportion of Upwelling by Latitude Facetted by Year
+
+```{r}
+# By Year
+final_df_year <- final_df %>%
+  summarise_by_year()
+
+
+final_df_year %>%
+  ggplot(aes(lat, upwelling_prop)) +
+  geom_line(color = "midnightblue", show.legend = FALSE) +
+  facet_wrap(~year, scales = "free_y") +
+  scale_x_continuous(labels = label_number(suffix ="\u00b0")) +
+  scale_y_continuous(labels = percent) +
+  labs(x = NULL,
+       y = "Upwelling Percentage",
+       title = "Upwelling Percentage by Latitude: 1982-2021")
+
+final_df_year %>% 
+  filter(upwelling_prop > 0.1) %>% 
+  mutate(month = factor(month.abb[month], levels = month.abb),
+         month = fct_reorder(month, -upwelling_prop)) %>% 
+  ggplot(aes(lat, upwelling_prop)) +
+  geom_line(aes(color = month, group = month)) +
+  scale_x_continuous(labels = label_number(suffix ="\u00b0")) +
+  scale_y_continuous(labels = percent) +
+  labs(x = NULL,
+       y = "Upwelling Percentage",
+       title = "Upwelling Percentage by Latitude: 1982-2021",
+       color = NULL)
+```
+
+
+## Line Plot of Proportion of Upwelling by Latitude Facetted by Month
+
+```{r}
+# By Month
+final_df_month <- final_df %>%
+  summarise_by_month()
+
+
+final_df_month %>% 
+  mutate(month = factor(month.abb[month],levels=month.abb)) %>% 
+  ggplot(aes(lat, upwelling_prop)) +
+  geom_line(aes(color = month), show.legend = FALSE) +
+  facet_wrap(~month, scales = "free_y") +
+  scale_x_continuous(labels = label_number(suffix ="\u00b0")) +
+  scale_y_continuous(labels = percent) +
+  labs(x = NULL,
+       y = "Upwelling Percentage",
+       title = "Upwelling Percentage by Latitude: 1982-2021")
+
+final_df_month %>% 
+  filter(upwelling_prop > 0.1) %>% 
+  mutate(month = factor(month.abb[month], levels = month.abb),
+         month = fct_reorder(month, -upwelling_prop)) %>% 
+  ggplot(aes(lat, upwelling_prop)) +
+  geom_line(aes(color = month, group = month)) +
+  scale_x_continuous(labels = label_number(suffix ="\u00b0")) +
+  scale_y_continuous(labels = percent) +
+  labs(x = NULL,
+       y = "Upwelling Percentage",
+       title = "Upwelling Percentage by Latitude: 1982-2021",
+       color = NULL)
+```
 
 
 
@@ -960,7 +1066,7 @@ upw_index_daily %>%
 ```
 
 
-## Annotate with Upwelling Index
+## Get Upwelling Index Data
 
 Search dataset
 ```{r}
@@ -969,8 +1075,12 @@ ui_search <- ed_search(query = "upwelling index", which = "tabledap",
 ui_search$info
 ```
 
+
 Upwelling Index, 45N 125W, 6-hourly                erdUI456hr
 Upwelling Index, 48N 125W, 6-hourly                erdUI486hr
+Upwelling Index, 42N 125W, 6-hourly                erdUI426hr
+Upwelling Index, 39N 125W, 6-hourly                erdUI396hr
+
 
 
 Find latitude or longitude
@@ -1018,7 +1128,7 @@ ui_df <- first_df %>%
 ```
 
 
-Monthly upwelling index
+## Line plots of Monthly upwelling index
 ```{r}
 ui <- tabledap("erdUI456hr") %>% 
     as_tibble() %>%  
@@ -1036,9 +1146,11 @@ ui %>%
          day = day(date)) %>% 
   group_by(year, month, lon, lat) %>% 
   summarise(monthly_upwelling_index = mean(upwelling_index, na.rm = TRUE), .groups = "drop") %>% 
+  # Make monthly_date as month-01 so its easiesr to plot
   mutate(monthly_date = make_date(year, month, 1)) %>% 
   ggplot(aes(monthly_date, monthly_upwelling_index)) +
   geom_line(color = "midnightblue") +
+  geom_smooth(color = "red") +
   geom_hline(yintercept = 0, linetype = "dashed") +
   labs(x = NULL,
        y = "Monthly Upwelling Index",
@@ -1060,6 +1172,7 @@ ui %>%
                                        "Non-Upwelling Months (1, 2, 3, 4, 5, 11, 12)")) %>%
   ggplot(aes(monthly_date, monthly_upwelling_index)) +
   geom_line(aes(color = is_upwelling_season), show.legend = FALSE) +
+  geom_smooth(color = "gold") +
   geom_hline(yintercept = 0, linetype = "dashed") +
   facet_wrap(~is_upwelling_season) +
   labs(x = NULL,
@@ -1069,6 +1182,25 @@ ui %>%
 ```
 
 
+## Boxplot with Upwelling (Y/N) on x-axis and upwelling index on y-axis.
+
+```{r}
+ui %>% 
+  mutate(year = year(date),
+         month = month(date),
+         day = day(date)) %>%
+  group_by(year, month, lon, lat) %>% 
+  summarise(monthly_upwelling_index = mean(upwelling_index, na.rm = TRUE), .groups = "drop") %>% 
+  mutate(monthly_date = make_date(year, month, 1)) %>%
+  mutate(is_upwelling_season = if_else(month %in% c(6, 7, 8, 9, 10), 
+                                       "Upwelling Months (6, 7, 8, 9, 10)",
+                                       "Non-Upwelling Months (1, 2, 3, 4, 5, 11, 12)")) %>% 
+  ggplot(aes(is_upwelling_season, monthly_upwelling_index)) +
+  geom_boxplot() +
+  labs(x = NULL,
+       y = "Monthly Upwelling Index",
+       title = "Monthly Averages of Upwelling Index by Upwelling Months \nFrom 1980-01-01 to 2021-05-31")
+```
 
 
 
