@@ -45,17 +45,22 @@ This confirms the validity of the `tabledap()` function!
 
 ```{r}
 sst_search <- ed_search(query = "sea surface temperature Optimum Interpolation", which = "griddap", url = "https://coastwatch.pfeg.noaa.gov/erddap/")
-sst_search
+
+sst_search <- sst_search$info
+
+sst_search %>% 
+  filter(str_detect(title, "SST|Daily Optimum Interpolation"))
 ```
 
 
 SST, Daily Optimum Interpolation (OI) dataset_id: 
 
 ```{r}
-sst_info <- info("ncdcOisst21Agg_LonPM180")
-sst_df <- griddap("ncdcOisst21Agg_LonPM180", latitude = c(25.375, 58.375), longitude = c(-141.875, -108.875), time = c("2021-06-19", "2021-06-19"), fields = "sst")$data
+sst_info <- info("ncdcOisst21Agg")
 
-sst_df
+sst_df <- griddap("ncdcOisst21Agg", latitude = c(40.625, 45.625), longitude = c(229.875, 236.625), time = c("1982-01-01", "2021-06-01"), fields = "sst")$data
+
+beepr::beep("mario")
 ```
 
 I checked and found that `sst_df` gives the same data table as that from https://coastwatch.pfeg.noaa.gov/erddap/griddap/ncdcOisst21Agg.htmlTable?sst%5B(2021-06-19T12:00:00Z)%5D%5B(0.0)%5D%5B(25.375):(58.375)%5D%5B(218.125):(251.125)%5D&.draw=surface&.vars=longitude%7Clatitude%7Csst&.colorBar=%7C%7C%7C16%7C32%7C&.bgColor=0xffccccff

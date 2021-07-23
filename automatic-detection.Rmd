@@ -797,11 +797,10 @@ ggplot() +
 ```
 
 
-## Past 20 Years: Proportion of Upwelling
+## Past 40 Years: Proportion of Upwelling
 
 ```{r}
-df_raw <- read_csv("data/erddap_2000-01-01_2021-06-01_lat_40.625_50.625_lon_229.875_236.625.csv")
-
+df_raw <- read_csv("data/erddap_1982-01-01_2021-06-29_lat_40.625_50.625_lon_229.875_236.625.csv")
 
 # Process data
 df_processed <- df_raw %>% 
@@ -890,6 +889,16 @@ summarise_by_year <- function(tbl) {
   
 }
 
+# Don't need to na.rm = TRUE because you want to preserve the land
+summarise_by_decade <- function(tbl) {
+  
+  tbl %>%
+    mutate(decade = (year %/% 10) * 10) %>% 
+    group_by(decade, lat, lon) %>% 
+    summarise(upwelling_prop = mean(is_upwelling_total), .groups = "drop")
+  
+}
+
 
 
 final_df_processed <- final_df %>%
@@ -903,9 +912,8 @@ ggplot() +
   # Upwelling proportion
   geom_tile(aes(lon, lat, fill = upwelling_prop),
             data = final_df_processed) +
-  # Add land
-  geom_tile(aes(lon, lat, fill = sst),
-            data = final_df_land) +
+  tm_shape(newshape) +
+  tm_borders("black", lwd = 3)
   scale_x_continuous(labels = label_number(suffix ="\u00b0")) +
   scale_y_continuous(labels = label_number(suffix ="\u00b0")) +
   scale_fill_gradient2(midpoint = mean(final_df_processed$upwelling_prop, na.rm = TRUE),
@@ -915,7 +923,6 @@ ggplot() +
                        na.value = "grey20",
                        labels = percent,
                        breaks = c(0, 0.25, 0.5)) +
-  facet_wrap(~year) +
   coord_quickmap() +
   labs(y = "",
        fill = "Upwelling Percentage",
@@ -983,25 +990,39 @@ final_df_year <- final_df %>%
 final_df_year %>%
   ggplot(aes(lat, upwelling_prop)) +
   geom_line(color = "midnightblue", show.legend = FALSE) +
-  facet_wrap(~year, scales = "free_y") +
+  geom_vline(xintercept = 42.5, lty = 2) +
+  geom_vline(xintercept = 48.4, lty = 2) +
+  facet_wrap(~year) +
   scale_x_continuous(labels = label_number(suffix ="\u00b0")) +
   scale_y_continuous(labels = percent) +
-  labs(x = NULL,
-       y = "Upwelling Percentage",
-       title = "Upwelling Percentage by Latitude: 1982-2021")
-
-final_df_year %>% 
-  filter(upwelling_prop > 0.1) %>% 
-  mutate(month = factor(month.abb[month], levels = month.abb),
-         month = fct_reorder(month, -upwelling_prop)) %>% 
-  ggplot(aes(lat, upwelling_prop)) +
-  geom_line(aes(color = month, group = month)) +
-  scale_x_continuous(labels = label_number(suffix ="\u00b0")) +
-  scale_y_continuous(labels = percent) +
+  expand_limits(y = 0) +
+  theme(axis.text.x = element_text(angle = 60, vjust = 1, hjust=1)) +
   labs(x = NULL,
        y = "Upwelling Percentage",
        title = "Upwelling Percentage by Latitude: 1982-2021",
-       color = NULL)
+       subtitle = "Dotted lines at Hot Spots")
+
+
+# By Decade
+# By Year
+final_df_decade <- final_df %>%
+  summarise_by_decade()
+
+
+final_df_decade %>%
+  ggplot(aes(lat, upwelling_prop)) +
+  geom_line(color = "midnightblue", show.legend = FALSE) +
+  geom_vline(xintercept = 42.5, lty = 2) +
+  geom_vline(xintercept = 48.4, lty = 2) +
+  facet_wrap(~decade) +
+  scale_x_continuous(labels = label_number(suffix ="\u00b0")) +
+  scale_y_continuous(labels = percent) +
+  expand_limits(y = 0) +
+  theme(axis.text.x = element_text(angle = 60, vjust = 1, hjust=1)) +
+  labs(x = NULL,
+       y = "Upwelling Percentage",
+       title = "Upwelling Percentage by Latitude Factted by Decade",
+       subtitle = "Dotted lines at Hot Spots")
 ```
 
 
@@ -1012,30 +1033,80 @@ final_df_year %>%
 final_df_month <- final_df %>%
   summarise_by_month()
 
+final_df_month %>% 
+  filter(upwelling_prop > 0.05) %>% 
+  mutate(month = factor(month.abb[month], levels = month.abb),
+         month = fct_reorder(month, -upwelling_prop)) %>% 
+  ggplot(aes(lat, upwelling_prop)) +
+  geom_line(aes(color = month, group = month)) +
+  geom_vline(xintercept = 42.5, lty = 2) +
+  geom_vline(xintercept = 48.4, lty = 2) +
+  scale_x_continuous(labels = label_number(suffix ="\u00b0")) +
+  scale_y_continuous(labels = percent) +
+  expand_limits(y = 0) +
+  labs(x = NULL,
+       y = "Upwelling Percentage",
+       title = "Upwelling Percentage by Latitude: 1982-2021",
+       subtitle = "Dotted lines at Hot Spots",
+       color = NULL)
 
 final_df_month %>% 
   mutate(month = factor(month.abb[month],levels=month.abb)) %>% 
   ggplot(aes(lat, upwelling_prop)) +
   geom_line(aes(color = month), show.legend = FALSE) +
-  facet_wrap(~month, scales = "free_y") +
+  geom_vline(xintercept = 42.5, lty = 2) +
+  geom_vline(xintercept = 48.4, lty = 2) +
+  facet_wrap(~month) +
   scale_x_continuous(labels = label_number(suffix ="\u00b0")) +
   scale_y_continuous(labels = percent) +
+  expand_limits(y = 0) +
   labs(x = NULL,
        y = "Upwelling Percentage",
        title = "Upwelling Percentage by Latitude: 1982-2021")
+```
 
-final_df_month %>% 
-  filter(upwelling_prop > 0.1) %>% 
-  mutate(month = factor(month.abb[month], levels = month.abb),
-         month = fct_reorder(month, -upwelling_prop)) %>% 
-  ggplot(aes(lat, upwelling_prop)) +
-  geom_line(aes(color = month, group = month)) +
-  scale_x_continuous(labels = label_number(suffix ="\u00b0")) +
-  scale_y_continuous(labels = percent) +
+
+## Get percentage of Upwelling in each month
+
+Want to get % of days in monthX that are upwelling. Each line is from monthX with different lines representing different years (2000-2021)
+
+```{r}
+prop_days_upwelling <- final_df %>% 
+  # Get distinct values of is_upwelling_total for each day
+  distinct(year, month, day, lat, is_upwelling_total) %>% 
+  group_by(year, month) %>% 
+  summarise(upwelling_prop = mean(is_upwelling_total, na.rm = TRUE), .groups = "drop")
+
+
+prop_days_upwelling %>% 
+  filter(year > 1981, year < 2000) %>% 
+  mutate(year = factor(year)) %>% 
+  ggplot(aes(month, upwelling_prop)) +
+  geom_point(color = "midnightblue") +
+  geom_line(aes(color = year, group = year), show.legend = FALSE) +
+  facet_wrap(~year) +
+  scale_x_continuous(breaks = c(1, 3, 6, 9, 12), labels = month.abb[c(1, 3, 6, 9, 12)]) +
+  scale_y_continuous(name = "Upwelling Percentage", labels = percent) +
+  theme(axis.text.x = element_text(angle = 60, vjust = 1, hjust=1)) +
   labs(x = NULL,
-       y = "Upwelling Percentage",
-       title = "Upwelling Percentage by Latitude: 1982-2021",
-       color = NULL)
+       title = "Proportion of Upwelling in each Month Facetted by Year",
+       subtitle = "1982 ~ 1999")
+
+
+prop_days_upwelling %>% 
+  filter(year > 1999, year < 2021) %>% 
+  mutate(year = factor(year)) %>% 
+  ggplot(aes(month, upwelling_prop)) +
+  geom_point(color = "midnightblue") +
+  geom_line(aes(color = year, group = year), show.legend = FALSE) +
+  facet_wrap(~year) +
+  scale_x_continuous(breaks = c(1, 3, 6, 9, 12), labels = month.abb[c(1, 3, 6, 9, 12)]) +
+  scale_y_continuous(name = "Upwelling Percentage", labels = percent) +
+  theme(axis.text.x = element_text(angle = 60, vjust = 1, hjust=1)) +
+  labs(x = NULL,
+       title = "Proportion of Upwelling in each Month Facetted by Year",
+       subtitle = "2000 ~ 2020")
+  
 ```
 
 

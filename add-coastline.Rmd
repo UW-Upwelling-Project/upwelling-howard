@@ -1,0 +1,36 @@
+---
+title: "Untitled"
+author: "Howard Baek"
+date: "7/23/2021"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(raster)
+library(tmap)
+library(grid)
+
+usashp <- raster::getData("GADM", country = "USA", level = 1)
+# akshp <- subset(usashp, NAME_1 %in% c("Alaska"))
+wa_or_shp <- subset(usashp, NAME_1 %in% c("Washington", "Oregon"))
+plot(wa_or_shp)
+```
+
+```{r}
+# pinpoint coordinates on plot
+bb <- drawExtent()
+newshape <- raster::crop(wa_or_shp, bb)
+plot(newshape)
+
+# Plot using tmap
+tm_shape(newshape) +
+  tm_borders("black", lwd = 3)
+```
+
