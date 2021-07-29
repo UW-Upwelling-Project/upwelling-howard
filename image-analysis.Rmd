@@ -1,0 +1,403 @@
+---
+title: "Untitled"
+author: "Howard Baek"
+date: "7/27/2021"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+Run PCA analysis from `pilot-analysis.Rmd` but only on upwelling months: June to Oct In `pilot-analysis.Rmd`, we only look at the first day of each month, but in `image-analysis.Rmd`, we will look at all the days in a month!
+
+
+## Libraries
+```{r}
+library(tidyverse)
+library(lubridate)
+library(scales)
+library(factoextra)
+library(raster)
+library(tmap)
+library(png)
+library(gridExtra)
+library(dendextend)
+library(DescTools)
+library(imageryML)
+library(plotly)
+library(ggrepel)
+theme_set(theme_light())
+```
+
+
+## Re-run Eli talk analyses 
+
+- Latitude (42.625, 52.125) and Longitude (229.875, 236.625)
+
+## Data Preprocessing: Monthly
+```{r}
+# I downloaded the data using read_csv("https://coastwatch.pfeg.noaa.gov/erddap/griddap/ncdcOisst21Agg.csv?sst%5B(2010-01-01T12:00:00Z):(2021-06-01T12:00:00Z)%5D%5B(0.0)%5D%5B(42.625):(52.125)%5D%5B(229.875):(236.625)%5D&.draw=surface&.vars=longitude%7Clatitude%7Csst&.colorBar=%7C%7C%7C12%7C19%7C&.bgColor=0xffccccff")
+# This big data is saved as pilot_data.csv
+
+# Raw data (last 10 years)
+df_raw <- read_csv("data/pilot_data.csv")
+
+# Processed data
+df_processed <- df_raw %>% 
+  # Get rid of miscellaneous zlev in first row
+  slice(-1) %>% 
+  # zlev is a column of zeroes, so get rid of that
+  dplyr::select(-zlev) %>% 
+  # Convert into date
+  mutate(time = ymd_hms(time),
+         month = month(time)) %>% 
+  # filter for every day in the Upwelling Months
+  filter(month %in% c(6:10)) %>%
+  dplyr::select(-month) %>% 
+  # Set column names
+  rename(date = time,
+         lat = latitude,
+         lon = longitude) %>% 
+  # Convert date column to Date type
+  mutate(date = as.Date(date),
+         lat = as.numeric(lat),
+         lon = as.numeric(lon),
+         sst = as.numeric(sst))
+
+# mask out Puget Sound, Strait of Juan de Fuca and Georgia Strait
+masks <- list(c(235.4488, 236.884, 47.87651, 50.13138),
+              c(232.2913, 233.8987, 50.28689, 51.60871),
+              c(234.4154, 235.9654, 49.04283, 50.09251))
+
+for (m1 in masks) {
+  # index of Puget Sound, Strait of Juan de Fuca or Georgia Strait
+  mask_loc <- df_processed$lat <= m1[4] & df_processed$lat >= m1[3] &
+    df_processed$lon <= m1[2] & df_processed$lon >= m1[1]
+  # Change to NA
+  df_processed$sst[mask_loc] <- NA
+}
+```
+
+```{r}
+# Pivot Wider
+df_wide <- df_processed %>% 
+  pivot_wider(names_from = date, values_from = sst)
+
+# which row are non-NA?
+pos.loc <- which(!is.na(df_wide[,3]))
+
+# Omit data and take transpose
+df.clean <- df_wide %>% 
+  # remove the rows that are NA
+  na.omit()
+
+# Take transpose of df_wide and df.clean to mimic output of processCSV-tidyverse.R
+df_wide_t <- t(df_wide)
+df.clean.t <- t(df.clean)
+
+datalist <- list(dat = df_wide_t, dat.clean = df.clean.t, pos.loc = pos.loc)
+```
+
+Why don't we scale the variance? Because it is precisely the variance that we are using to identify upwelling (cold nearshore and warm offshore) and identify strong versus weak upwelling. Scaling would remove the signal that we need. It would also introduce an erroneous signal to uniform temperature images (so nearshore and offshore similar in temperature). But you do want to remove the image mean because it is the nearshore/offshore differential that is the signal of upwelling not the absolute temperature.
+
+```{r}
+# Take out rows with lat, lon
+image <- df.clean.t[c(-1,-2),]
+# image %>% View()
+
+# Create image_norm (X_norm in QuanSeminar.Rmd)
+image_norm <- t(scale(t(image), scale=FALSE))
+colnames(image_norm) <- paste0("p", 1:ncol(image_norm))
+
+image_norm %>% View()
+image_norm %>% dim()
+```
+
+
+Note: image_norm is a 1684 by 776 matrix (Context: 1684 images on 1684 different dates, every day in June, July, August, September, and October the past 10 years, with 776 pixels) where each value is normalized version of the SST.
+
+
+```{r}
+round(image_norm[1:5, 1:10], digits=2)
+```
+
+
+
+
+
+## Principal Component Analysis
+
+```{r}
+# Apply PCA
+prcomp_pca <- prcomp(image_norm, scale = FALSE, center = FALSE)
+
+# Do this so the first eigenimage looks like upwelling
+# each column in prcomp_pca$rotation is an "eigenimage"
+prcomp_pca$rotation[,1] <- -1 * prcomp_pca$rotation[,1]
+prcomp_pca$x[,1] <- -1 * prcomp_pca$x[,1]
+
+
+# eigenimages is the transpose of the rotation matrix, which provides 
+# the principal component loadings: each column of the rotation matrix
+# provides the corresponding principal component loading vector (ISL pg 402)
+eigenimages <- t(prcomp_pca$rotation)
+# alpha's kth column is the kth principal component score vector (z)
+alpha <- prcomp_pca$x
+```
+
+`eigenimages` is a 776 by 776 matrix, where there are 138 PCs (eigenimages) and 776 pixels (p1, p2, p3, ..., p776)
+
+`alpha` is a 1684 by 776 matrix
+
+
+```{r}
+df <- data.frame(alpha,
+                date = as.Date(rownames(image_norm)),
+                year=as.integer(format(as.Date(rownames(image_norm)), "%Y")),
+                mon=factor(format(as.Date(rownames(image_norm)), "%b"), levels = month.abb))
+# Get rid of rownames
+rownames(df) <- NULL
+# Make date_label for graph
+df <- df %>% 
+  mutate(date_label = paste(mon, year, sep = ","))
+
+df2 <- df %>% 
+  pivot_longer(starts_with("PC"), names_to="PC", values_to="value")
+```
+
+
+
+### PC1 and PC2 Scores
+```{r}
+# Visualize PCs by sampling 200 points
+# Recreate Eli's graph: SST Anomaly pattern in the PC1-PC2 space
+df %>% 
+  slice_sample(n = 200) %>% 
+  ggplot(aes(PC1, PC2, label = date_label)) +
+  geom_point(alpha = 0.3) +
+  geom_text(check_overlap = TRUE, vjust = 1, hjust = 1) +
+  annotate("segment", x = -5, xend = 55, y = 0, yend = 0, colour = "midnightblue", linetype=2) +
+  annotate("segment", x = 0, xend = 0, y = -25, yend = 25, colour = "midnightblue", linetype=2) +
+  ggtitle("PCA clusters months together") + 
+  labs(x = "PC1 Score",
+       y = "PC2 Score") 
+```
+
+### PCA: Facet by month
+
+#### Static
+```{r}
+df %>% 
+  slice_sample(n = 200) %>% 
+  ggplot(aes(PC1, PC2, label = year)) +
+  geom_point(alpha = 0.8) +
+  geom_text(check_overlap = TRUE, vjust = 1, hjust = 1) +
+  facet_wrap(~mon) +
+  annotate("segment", x = -5, xend = 55, y = 0, yend = 0, colour = "midnightblue", linetype=2) +
+  annotate("segment", x = 0, xend = 0, y = -25, yend = 25, colour = "midnightblue", linetype=2) +
+  labs(x = "PC1 Score",
+       y = "PC2 Score") +
+  ggtitle("PCA decomposition into PC1 Score and PC2 Score by Month") 
+```
+
+
+#### Interactive
+```{r}
+pca_by_month_plot <- df %>%
+  slice_sample(n = 200) %>% 
+  ggplot(aes(PC1, PC2)) +
+  geom_point(aes(text = paste("Year:", year)),
+             alpha = 0.7) +
+  facet_wrap(~mon) +
+  annotate("segment", x = -5, xend = 55, y = 0, yend = 0, colour = "midnightblue", linetype=2) +
+  annotate("segment", x = 0, xend = 0, y = -25, yend = 25, colour = "midnightblue", linetype=2) +
+  labs(x = "PC1 Score",
+       y = "PC2 Score") +
+  ggtitle("PCA decomposition into PC1 Score and PC2 Score by Month",
+          subtitle = "Shows seasonal cycle: Parabolic Movement from Jan to Dec") 
+
+ggplotly(pca_by_month_plot, tooltip = "text")
+```
+
+
+### PCA: Facet by Year
+
+##### Static
+```{r}
+df %>%
+  slice_sample(n = 200) %>% 
+  ggplot(aes(PC1, PC2, label = mon, vjust = 1, hjust = 1)) +
+  geom_point(alpha = 0.8) +
+  geom_text(check_overlap = TRUE) +
+  facet_wrap(~year) +
+  annotate("segment", x = -5, xend = 55, y = 0, yend = 0, colour = "midnightblue", linetype=2) +
+  annotate("segment", x = 0, xend = 0, y = -25, yend = 25, colour = "midnightblue", linetype=2) +
+  labs(x = "PC1 Score",
+       y = "PC2 Score") +
+  ggtitle("PCA decomposition into PC1 Score and PC2 Score by Year") 
+```
+
+
+#### Interactive
+```{r}
+pca_by_year_plot <- df %>%
+  slice_sample(n = 200) %>% 
+  ggplot(aes(PC1, PC2)) +
+  geom_point(aes(text = paste(mon)),
+                 alpha = 0.8) +
+  facet_wrap(~year) +
+  annotate("segment", x = -5, xend = 55, y = 0, yend = 0, colour = "midnightblue", linetype=2) +
+  annotate("segment", x = 0, xend = 0, y = -25, yend = 25, colour = "midnightblue", linetype=2) +
+  labs(x = "PC1 Score",
+       y = "PC2 Score") +
+  ggtitle("PCA decomposition into PC1 Score and PC2 Score by Year",
+          subtitle = "Shows seasonal cycle, missing summer months for 2021") 
+
+ggplotly(pca_by_year_plot, tooltip = "text")
+```
+
+
+
+
+
+### Vector to Raster (img.list)
+```{r}
+img.list <- imgVectortoRaster(eigenimages, datalist)$list
+```
+
+### PCA: 6 Eigen Images
+```{r}
+# First 6 eigenimages
+p_stack <- raster::stack(img.list[[1]], img.list[[2]], img.list[[3]], 
+                 img.list[[4]], img.list[[5]], img.list[[6]])
+
+pal <- colorRamps::matlab.like(100)
+
+tm_shape(p_stack) +
+  tm_raster(style= "cont", title="SST Anomaly", 
+            palette=pal, midpoint=NA, 
+            colorNA = "grey", textNA = "Land") +
+  tm_layout(panel.labels = paste("PC", 1:length(p_stack))) +
+  tm_layout(main.title = "Eigen Images", title.size = 1)
+```
+
+
+### Reconstruction of Images with PCA 
+
+
+```{r}
+# First PC
+ncomp1 <- 1
+RE1 <- alpha[,1:ncomp1, drop=FALSE] %*% eigenimages[1:ncomp1,, drop=FALSE]
+
+# First 2 PCs
+ncomp2 <- 2
+RE2 <- alpha[,1:ncomp2] %*% eigenimages[1:ncomp2,]
+
+# First 10 PCs
+ncomp3 <- 10
+RE3 <- alpha[,1:ncomp3] %*% eigenimages[1:ncomp3,]
+```
+
+
+
+2015-10-01
+```{r}
+# Index for date 2015-10-01
+i <- which(rownames(image_norm) =="2015-10-01")
+
+img1 <- imgVectortoRaster(rbind(image_norm[i,], RE1[i,], RE2[i,], RE3[i,]), datalist)$stack
+
+tm_shape(img1) + 
+  tm_raster(style= "cont", title="SST Anomaly", 
+            palette=pal, midpoint=NA, 
+            colorNA = "grey", textNA = "Land") +
+  tm_layout(panel.labels = c("True", paste(c(ncomp1, ncomp2, ncomp3),"PC")),
+            title=rownames(image_norm)[i])
+```
+
+
+2020-09-01
+```{r}
+# Index for date 2020-06-01
+i <- which(rownames(image_norm) =="2020-09-01")
+
+img1 <- imgVectortoRaster(rbind(image_norm[i,], RE1[i,], RE2[i,], RE3[i,]), datalist)$stack
+
+tm_shape(img1) + 
+  tm_raster(style= "cont", title="SST Anomaly", 
+            palette=pal, midpoint=NA, 
+            colorNA = "grey", textNA = "Land") +
+  tm_layout(panel.labels = c("True", paste(c(ncomp1, ncomp2, ncomp3),"PC")),
+            title=paste0(rownames(image_norm)[i]))
+  
+```
+
+
+
+2021-05-01
+```{r}
+# Index for date 2020-06-01
+i <- which(rownames(image_norm) =="2021-05-01")
+
+img1 <- imgVectortoRaster(rbind(image_norm[i,], RE1[i,], RE2[i,], RE3[i,]), datalist)$stack
+
+tm_shape(img1) + 
+  tm_raster(style= "cont", title="SST Anomaly", 
+            palette=pal, midpoint=NA, 
+            colorNA = "grey", textNA = "Land") +
+  tm_layout(panel.labels = c("True", paste(c(ncomp1, ncomp2, ncomp3),"PC")),
+            title=rownames(image_norm)[i])
+```
+
+
+
+
+2021-06-01
+```{r}
+# Index for date 2020-06-01
+i <- which(rownames(image_norm) =="2021-06-01")
+
+img1 <- imgVectortoRaster(rbind(image_norm[i,], RE1[i,], RE2[i,], RE3[i,]), datalist)$stack
+
+tm_shape(img1) + 
+  tm_raster(style= "cont", title="SST Anomaly", 
+            palette=pal, midpoint=NA, 
+            colorNA = "grey", textNA = "Land") +
+  tm_layout(panel.labels = c("True", paste(c(ncomp1, ncomp2, ncomp3),"PC")),
+            title=rownames(image_norm)[i])
+```
+
+
+### Function for Reconstruction of Images with PCA 
+```{r}
+recon_image <- function(date) {
+  
+  # Index for date
+  i <- which(rownames(image_norm) == date)
+  
+  img1 <- imgVectortoRaster(rbind(image_norm[i,], RE1[i,], RE2[i,], RE3[i,]), datalist)$stack
+  
+  tm_shape(img1) + 
+    tm_raster(style= "cont", title="SST Anomaly", 
+              palette=pal, midpoint=NA, 
+              colorNA = "grey", textNA = "Land") +
+    tm_layout(panel.labels = c("True", paste(c(ncomp1, ncomp2, ncomp3),"PC")),
+              title=rownames(image_norm)[i])
+}
+```
+
+
+
+### Variance Explained 
+
+```{r}
+fviz_eig(prcomp_pca) + 
+  xlab("Principal Components") + 
+  ggtitle("")
+```
+
