@@ -1,0 +1,179 @@
+---
+title: "Untitled"
+author: "Howard Baek"
+date: "8/4/2021"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Libraries
+```{r}
+library(tidyverse)
+library(lubridate)
+library(scales)
+library(factoextra)
+library(raster)
+library(tmap)
+library(png)
+library(gridExtra)
+library(dendextend)
+library(DescTools)
+library(imageryML)
+library(plotly)
+library(ggmap)
+library(rerddap)
+
+theme_set(theme_light())
+```
+
+
+### Data Preprocessing
+
+```{r}
+# I downloaded the data using read_csv("https://coastwatch.pfeg.noaa.gov/erddap/griddap/ncdcOisst21Agg.csv?sst%5B(2010-01-01T12:00:00Z):(2021-06-01T12:00:00Z)%5D%5B(0.0)%5D%5B(42.625):(52.125)%5D%5B(229.875):(236.625)%5D&.draw=surface&.vars=longitude%7Clatitude%7Csst&.colorBar=%7C%7C%7C12%7C19%7C&.bgColor=0xffccccff")
+# This big data is saved as pilot_data.csv
+
+# Raw data (last 10 years)
+df_raw <- read_csv("data/pilot_data.csv")
+
+# Processed data
+df_processed <- df_raw %>% 
+  # Get rid of miscellaneous zlev in first row
+  slice(-1) %>% 
+  # zlev is a column of zeroes, so get rid of that
+  dplyr::select(-zlev) %>% 
+  # Convert into date
+  mutate(time = ymd_hms(time)) %>% 
+  # Set column names
+  rename(date = time,
+         lat = latitude,
+         lon = longitude) %>% 
+  # Convert date column to Date type
+  mutate(date = as.Date(date),
+         lat = as.numeric(lat),
+         lon = as.numeric(lon),
+         sst = as.numeric(sst))
+
+# mask out Puget Sound, Strait of Juan de Fuca and Georgia Strait
+masks <- list(c(235.4488, 236.884, 47.87651, 50.13138),
+              c(232.2913, 233.8987, 50.28689, 51.60871),
+              c(234.4154, 235.9654, 49.04283, 50.09251))
+
+for (m1 in masks) {
+  # index of Puget Sound, Strait of Juan de Fuca or Georgia Strait
+  mask_loc <- df_processed$lat <= m1[4] & df_processed$lat >= m1[3] &
+    df_processed$lon <= m1[2] & df_processed$lon >= m1[1]
+  # Change to NA
+  df_processed$sst[mask_loc] <- NA
+}
+
+# Create sample data (2010-01-01)
+df_processed_date <- df_processed %>% 
+  filter(date == "2016-08-01") %>% 
+  mutate(lon = lon - 360)
+
+# Automatic Detection Method
+# Find SST values next to land (sst_coast_X) and check if upwelling
+is_upwelling <- df_processed_date %>% 
+  group_by(lat) %>% 
+  # 1 longitude tick away from land
+  mutate(sst_coast_1 = last(na.omit(sst)),
+         # 8 longitude ticks away from land (2 degrees in longitude)
+         sst_coast_2 = nth(na.omit(sst), -9),
+         # 12 longitude ticks away from land (3 degrees in longitude)
+         sst_coast_3 = nth(na.omit(sst), -13)) %>% 
+  # Find difference between pixels
+  # Threshold: 0.15
+  summarize(is_upwelling_1_2 = sst_coast_2 - sst_coast_1 > 2,
+            is_upwelling_1_3 = sst_coast_3 - sst_coast_1 > 2) %>% 
+  ungroup() %>% 
+  group_by(lat) %>% 
+  # Check if any upwelling in each latitude
+  # first() because I want to return one row for each lat
+  summarise(is_upwelling_total = first(is_upwelling_1_2 | is_upwelling_1_3)) %>% 
+  ungroup()
+
+
+final_df <- df_processed_date %>% 
+  left_join(is_upwelling) %>%
+  ungroup() %>% 
+  group_by(lat) %>% 
+  # Find  (coast) longitude corresponding to row preceding last Na/NaN value in SST
+  mutate(last_lon = across(sst, ~ tail(lon[!is.na(.)], 1))) %>% 
+  ungroup() %>% 
+  # last_lon: longitude off coast
+  mutate(last_lon = last_lon$sst,
+         # For blue dots
+         last_lon_minus_two = last_lon - 2,
+         last_lon_minus_three = last_lon - 3)
+
+# Filter out for upwelling locations
+final_df_upwelling <- final_df %>% 
+  filter(is_upwelling_total)
+
+# Filter out for sea only (take out land)
+final_df_sea <- final_df %>% filter(!is.na(sst))
+
+# Filter out blue dots that are off the map
+# i.e. Only keep blue dots where both last_lon_minus_two
+# and last_lon_minus_three are on the map
+final_df_upwelling_blue <- final_df_upwelling %>% 
+  filter(last_lon_minus_two > min(final_df_upwelling$lon)) %>% 
+  filter(last_lon_minus_three > min(final_df_upwelling$lon))
+```
+
+
+### Get Stamen Map
+
+```{r}
+# Give coordinates for map
+bbox <- c(left = -130.125, bottom = 42.625, right = -123.875, top = 52.125)
+# Get stamen map
+ocean_map <- get_stamenmap(bbox, zoom = 8, maptype = "terrain-background")
+```
+
+
+### Stamen Map with automatic detection
+
+```{r}
+# Plot
+ggmap(ocean_map, maprange = FALSE) +
+  # SST
+  geom_tile(aes(lon, lat, fill = sst),
+            alpha = 0.2,
+            data = final_df_sea) +
+  # Red dots
+  geom_point(data = final_df_upwelling,
+             mapping = aes(x = last_lon, y = lat),
+             size = 1.5,
+             shape = 8,
+             color = "red") +
+  # Blue dots
+  geom_point(data = final_df_upwelling_blue,
+             mapping = aes(x = last_lon_minus_two, y = lat),
+             size = 1.5,
+             shape = 8,
+             color = "blue") +
+  geom_point(data = final_df_upwelling_blue,
+             mapping = aes(x = last_lon_minus_three, y = lat),
+             size = 1.5,
+             shape = 8,
+             color = "blue") + 
+  scale_fill_gradient2(midpoint = mean(final_df$sst, na.rm = TRUE),
+                       low = "blue",
+                       mid = "white",
+                       high = "red",
+                       na.value = "grey20") +
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        panel.border = element_blank(),
+        legend.position = "bottom",
+        legend.background=element_blank())
+```
+
