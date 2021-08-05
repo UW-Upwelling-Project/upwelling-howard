@@ -164,11 +164,14 @@ ggmap(ocean_map, maprange = FALSE) +
              size = 1.5,
              shape = 8,
              color = "blue") + 
-  scale_fill_gradient2(midpoint = mean(final_df$sst, na.rm = TRUE),
+  scale_fill_gradient2(name = "Sea Surface Temperature (\u00B0C)",
+                       midpoint = mean(final_df$sst, na.rm = TRUE),
                        low = "blue",
                        mid = "white",
                        high = "red",
                        na.value = "grey20") +
+  labs(x = NULL,
+       y = NULL) +
   theme(panel.grid.major = element_blank(), 
         panel.grid.minor = element_blank(),
         panel.background = element_blank(),
