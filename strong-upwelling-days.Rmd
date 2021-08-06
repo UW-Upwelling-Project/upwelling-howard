@@ -1,0 +1,205 @@
+---
+title: "strong-upwelling-days"
+author: "Howard Baek"
+date: "8/6/2021"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Libraries
+```{r}
+library(tidyverse)
+library(lubridate)
+library(scales)
+library(factoextra)
+library(raster)
+library(tmap)
+library(png)
+library(gridExtra)
+library(dendextend)
+library(DescTools)
+library(imageryML)
+library(plotly)
+library(cluster)    # clustering algorithms
+library(factoextra) # clustering algorithms & visualization
+library(dendextend)
+theme_set(theme_light())
+```
+
+
+
+- Look at number of days of strong upwelling in June to October only
+
+
+## Data Preprocessing
+```{r}
+# Raw data
+df_raw <- read_csv("data/erddap_1982-01-01_2021-06-29_lat_40.625_50.625_lon_229.875_236.625.csv")
+
+# Processed data
+df_processed_daily <- df_raw %>% 
+  # Get rid of miscellaneous zlev in first row
+  slice(-1) %>% 
+  # zlev is a column of zeroes, so get rid of that
+  dplyr::select(-zlev) %>% 
+  # Convert into date
+  mutate(time = ymd_hms(time),
+         # Extract out day so I can just filter for first day in each month
+         day = day(time)) %>% 
+  dplyr::select(-day) %>% 
+  # Set column names
+  rename(date = time,
+         lat = latitude,
+         lon = longitude) %>% 
+  # Convert date column to Date type
+  mutate(date = as.Date(date),
+         lat = as.numeric(lat),
+         lon = as.numeric(lon),
+         sst = as.numeric(sst))
+
+# mask out Puget Sound, Strait of Juan de Fuca and Georgia Strait
+masks <- list(c(235.4488, 236.884, 47.87651, 50.13138),
+              c(232.2913, 233.8987, 50.28689, 51.60871),
+              c(234.4154, 235.9654, 49.04283, 50.09251))
+
+for(m1 in masks) {
+  # index of Puget Sound, Strait of Juan de Fuca or Georgia Strait
+  mask_loc <- df_processed_daily$lat <= m1[4] & df_processed_daily$lat >= m1[3] &
+    df_processed_daily$lon <= m1[2] & df_processed_daily$lon >= m1[1]
+  # Change to NA
+  df_processed_daily$sst[mask_loc] <- NA
+}
+
+# Check if same n for each date
+# n.by.date <- tapply(df_processed_daily$sst, df_processed_daily$date, function(x){sum(is.na(x))})
+# if(any((n.by.date-n.by.date[1])!=0)) {
+#   stop("There's a problem. Should be same n for each date.")
+# } 
+
+# Pivot Wider
+df_wide_daily <- df_processed_daily %>% 
+  pivot_wider(names_from = date, values_from = sst)
+
+# which row are non-NA?
+pos.loc <- which(!is.na(df_wide_daily[,3]))
+
+# Omit data and take transpose
+df.clean.daily <- df_wide_daily %>% 
+  # remove the rows that are NA
+  na.omit()
+
+# Take transpose of df_wide and df.clean to mimic output of processCSV-tidyverse.R
+df_wide_t <- t(df_wide_daily)
+df.clean.t <- t(df.clean.daily)
+
+datalist <- list(dat = df_wide_t, dat.clean = df.clean.t, pos.loc = pos.loc)
+
+# Take out rows with lat, lon
+image_daily <- df.clean.t[c(-1,-2),]
+# image %>% View()
+
+# Create image_norm (X_norm in QuanSeminar.Rmd)
+image_daily_norm <- t(scale(t(image_daily), scale=FALSE))
+colnames(image_daily_norm) <- paste0("p", 1:ncol(image_daily_norm))
+
+dates <- as.Date(rownames(image_daily_norm))
+years <- as.numeric(format(dates, "%Y"))
+mons <- format(dates, "%B")
+```
+
+## PCA
+```{r}
+# Run PCA
+prcomp.pca <- prcomp(image_daily_norm, scale = FALSE, center=FALSE)
+eigenimages <- t(prcomp.pca$rotation)
+alpha <- prcomp.pca$x
+```
+
+## Number of days of each pattern
+```{r}
+ncomp <- 20
+monvals <- month.name[6:10]
+
+p1 <- yearTable(alpha[mons%in%monvals,1:ncomp], 
+                method = "hclust.complete", 
+                K=3, 
+                dist.type="euclidian")
+
+
+p <- p1$p +
+  geom_smooth(span = 0.3)+
+  labs(x = NULL, 
+       y = NULL) +
+  ggtitle(paste0("Number of days in each pattern in June-October (", "hclust.complete", ")"))
+
+centers <- p1$centers %*% eigenimages[1:ncomp,, drop=FALSE]
+img.list <- imgVectortoRaster(centers, datalist)$list
+
+addIMGtopanel(p, img.list)
+```
+
+
+- Strong upwelling is observed in cluster 3
+
+
+
+## Jun-Oct day of first and last strong upwelling signal
+
+```{r}
+grp_yrs <- years[mons%in%monvals]
+grp_date <- format(as.Date(rownames(image_daily)[mons%in%monvals]), "%b-%d")
+
+first_day <- tapply(p1$clusters, grp_yrs, function(x){min(which(x==3))})
+last_day <- tapply(p1$clusters, grp_yrs, function(x){max(which(x==3))})
+
+# p1_clusters_df <- tibble(date = names(p1$clusters), cluster = p1$clusters)
+
+df <- data.frame(year=as.numeric(names(first_day)),
+                 first_day = first_day,
+                 last_day = last_day,
+                 first_day2 = grp_date[first_day],
+                 last_day2 = grp_date[last_day]) %>% 
+  # Filter out 2021 because not enough dates 
+  filter(year < 2021)
+
+df2 <- df[,1:3] %>% 
+  pivot_longer(cols = 2:3, names_to="upwelling", values_to="day")
+```
+
+
+### Plot
+```{r}
+# First and last day of strong upwelling pattern
+df2 %>% 
+  mutate(upwelling = ifelse(upwelling == "first_day", "First Day", "Last Day")) %>% 
+  ggplot(aes(x=year, y=day, col=upwelling)) + 
+  geom_line() + 
+  scale_x_continuous(breaks = c(1982, 1990, 2000, 2010, 2020)) +
+  scale_y_continuous(breaks=seq(0,155,10),
+                     labels=c("", grp_date[1:152][seq(0,155,10)])) +
+  labs(x = NULL,
+       y = NULL,
+       col = NULL) +
+  ggtitle("First and last day of strong upwelling pattern",
+          subtitle = "No clear trend")
+# In most years, last day of strong upwelling pattern is on Oct 31st.
+
+# Difference in num of days between first and last day of strong upwelling pattern
+df %>% 
+  as_tibble() %>% 
+  mutate(diff_day = last_day - first_day) %>% 
+  ggplot(aes(year, diff_day)) +
+  geom_line(color = "midnightblue") +
+  geom_smooth() +
+  expand_limits(y = 0) +
+  labs(x = NULL,
+       y = "Difference in Days") +
+  ggtitle("Difference in Num of days between first and last day of strong upwelling pattern",
+          subtitle = "June to Oct")
+```
+
