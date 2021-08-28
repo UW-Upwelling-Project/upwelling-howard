@@ -28,6 +28,7 @@ library(imageryML)
 library(plotly)
 library(ggmap)
 library(rerddap)
+library(patchwork)
 
 theme_set(theme_light())
 ```
@@ -614,6 +615,7 @@ auto_detect <- function(df_raw,
 ```
 
 
+
 ## Updated Workflow
 
 ```{r}
@@ -828,7 +830,6 @@ for (m1 in masks) {
 }
 
 
-# Create df for specific date
 df_processed_date <- df_processed %>% 
   mutate(lon = lon - 360)
 
@@ -846,8 +847,8 @@ is_upwelling <- df_processed_date %>%
   group_by(date, lat) %>% 
   # Find difference between pixels
   # Threshold: 2.5
-  summarize(is_upwelling_1_2 = sst_coast_2 - sst_coast_1 > 2.5,
-            is_upwelling_1_3 = sst_coast_3 - sst_coast_1 > 2.5) %>% 
+  summarize(is_upwelling_1_2 = sst_coast_2 - sst_coast_1 > 2,
+            is_upwelling_1_3 = sst_coast_3 - sst_coast_1 > 2) %>% 
   ungroup() %>% 
   group_by(date, lat) %>% 
   # Check if any upwelling in each latitude
@@ -914,37 +915,37 @@ final_df_processed_heatmap <- final_df_processed %>%
   distinct(month, lat, upwelling_prop) %>% 
   filter(lat < 50)
 
-ggplot() +
-  # Upwelling proportion
-  geom_tile(aes(lon, lat, fill = upwelling_prop),
-            data = final_df_processed) +
-  # Add land
-  geom_tile(aes(lon, lat, fill = sst),
-            data = final_df_land) +
-  scale_x_continuous(labels = label_number(suffix ="\u00b0")) +
-  scale_y_continuous(labels = label_number(suffix ="\u00b0")) +
-  scale_fill_gradient2(midpoint = mean(final_df_processed$upwelling_prop, na.rm = TRUE),
-                       low = "blue",
-                       mid = "white",
-                       high = "red",
-                       na.value = "grey20",
-                       labels = percent,
-                       breaks = c(0, 0.25, 0.5, 0.9)) +
-  facet_wrap(~month) +
-  coord_quickmap() +
-  labs(y = "",
-       fill = "Upwelling Percentage",
-       title = "Upwelling Percentage by Latitude: 1982 ~ 2021") +
-  theme(axis.title.x=element_blank(),
-        axis.text.x=element_blank(),
-        axis.ticks.x=element_blank(),
-        panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(),
-        panel.background = element_blank(),
-        panel.border = element_blank(),
-        legend.position = "bottom",
-        legend.background=element_blank()) 
-
+# ggplot() +
+#   # Upwelling proportion
+#   geom_tile(aes(lon, lat, fill = upwelling_prop),
+#             data = final_df_processed) +
+#   # Add land
+#   geom_tile(aes(lon, lat, fill = sst),
+#             data = final_df_land) +
+#   scale_x_continuous(labels = label_number(suffix ="\u00b0")) +
+#   scale_y_continuous(labels = label_number(suffix ="\u00b0")) +
+#   scale_fill_gradient2(midpoint = mean(final_df_processed$upwelling_prop, na.rm = TRUE),
+#                        low = "blue",
+#                        mid = "white",
+#                        high = "red",
+#                        na.value = "grey20",
+#                        labels = percent,
+#                        breaks = c(0, 0.25, 0.5, 0.9)) +
+#   facet_wrap(~month) +
+#   coord_quickmap() +
+#   labs(y = "",
+#        fill = "Upwelling Percentage",
+#        title = "Upwelling Percentage by Latitude: 1982 ~ 2021") +
+#   theme(axis.title.x=element_blank(),
+#         axis.text.x=element_blank(),
+#         axis.ticks.x=element_blank(),
+#         panel.grid.major = element_blank(), 
+#         panel.grid.minor = element_blank(),
+#         panel.background = element_blank(),
+#         panel.border = element_blank(),
+#         legend.position = "bottom",
+#         legend.background=element_blank()) 
+# 
 
 # Heatmap
 final_df_processed_heatmap %>%
@@ -962,12 +963,10 @@ final_df_processed_heatmap %>%
                        na.value = "white",
                        name = "Upwelling Percentage",
                        labels = percent) +
+  theme(legend.position = "bottom") +
   ggtitle("Upwelling Percentage by Latitude for each Month",
           subtitle = "1982 ~ 2020")
 ```
-
-
-
 
 
 
@@ -982,18 +981,21 @@ final_df_year <- final_df %>%
 # Plot
 final_df_year %>%
   ggplot(aes(lat, upwelling_prop)) +
-  geom_line(color = "midnightblue", show.legend = FALSE) +
+  geom_line(color = "midnightblue", 
+            size = 1.1,
+            show.legend = FALSE) +
   geom_vline(xintercept = 42.5, lty = 2) +
   geom_vline(xintercept = 48.4, lty = 2) +
   facet_wrap(~year) +
-  scale_x_continuous(labels = label_number(suffix ="\u00b0")) +
+  scale_x_continuous(breaks = c(42.5, 45, 48.4, 50),
+                     labels = label_number(suffix ="\u00b0")) +
   scale_y_continuous(labels = percent) +
   expand_limits(y = 0) +
   theme(axis.text.x = element_text(angle = 60, vjust = 1, hjust=1)) +
   labs(x = NULL,
        y = "Upwelling Percentage",
        title = "Upwelling Percentage by Latitude: 1982-2020",
-       subtitle = "Dotted lines at Hot Spots")
+       subtitle = "Dotted lines at Upwelling Hot Spots")
 
 
 # By Year Heatmap
@@ -1016,7 +1018,7 @@ final_df_year_heatmap %>%
                        mid = "white",
                        high = "brown",
                        na.value = "white",
-                        name = "Upwelling Percentage",
+                       name = "Upwelling Percentage",
                        labels = percent) +
   ggtitle("Upwelling Percentage by Latitude for each Year",
           subtitle = "1982 ~ 2020")
@@ -1041,7 +1043,7 @@ final_df %>%
                        mid = "white",
                        high = "brown",
                        na.value = "white",
-                        name = "Upwelling Percentage",
+                       name = "Upwelling Percentage",
                        labels = percent) +
   ggtitle("Upwelling Percentage by Latitude for each Year",
           subtitle = "1982 ~ 2020 Upwelling Months (June to Oct)")
@@ -1057,19 +1059,30 @@ final_df_decade <- final_df %>%
 final_df_decade %>%
   # Filter out 2020 because not enough data
   filter(decade < 2020) %>% 
+  mutate(decade = as.character(decade),
+         decade = case_when(
+           decade == "1980" ~ "1980s",
+           decade == "1990" ~ "1990s",
+           decade == "2000" ~ "2000s",
+           decade == "2010" ~ "2010s",
+           TRUE ~ decade
+         )) %>% 
   ggplot(aes(lat, upwelling_prop)) +
-  geom_line(color = "midnightblue", show.legend = FALSE) +
+  geom_line(color = "midnightblue", 
+            size = 1.2,
+            show.legend = FALSE) +
   geom_vline(xintercept = 42.5, lty = 2) +
   geom_vline(xintercept = 48.4, lty = 2) +
   facet_wrap(~decade) +
-  scale_x_continuous(labels = label_number(suffix ="\u00b0")) +
-  scale_y_continuous(labels = percent) +
+  scale_x_continuous(breaks = c(42.5, 45, 48.4, 50),
+                     labels = scales::label_number(suffix ="\u00b0")) +
+  scale_y_continuous(labels = scales::percent) +
   expand_limits(y = 0) +
   theme(axis.text.x = element_text(angle = 60, vjust = 1, hjust=1)) +
   labs(x = NULL,
        y = "Upwelling Percentage",
        title = "Upwelling Percentage by Latitude Facetted by Decade",
-       subtitle = "Dotted lines at Hot Spots")
+       subtitle = "Dotted lines at Upwelling Hot Spots")
 
 # By Decade Heatmap
 final_df_decade_heatmap <- final_df_decade %>% 
@@ -1093,8 +1106,9 @@ final_df_decade_heatmap %>%
                        mid = "white",
                        high = "brown",
                        na.value = "white",
-                        name = "Upwelling Percentage",
+                       name = "Upwelling Percentage",
                        labels = percent) +
+  theme(legend.position = "bottom") +
   ggtitle("Upwelling Percentage by Latitude for each Decade",
           subtitle = "1982 ~ 2020")
 ```
@@ -1106,6 +1120,7 @@ final_df_decade_heatmap %>%
 # By Month
 final_df_month <- final_df %>%
   summarise_by_month()
+
 
 final_df_month %>% 
   filter(upwelling_prop > 0.05) %>% 
@@ -1127,16 +1142,21 @@ final_df_month %>%
 final_df_month %>% 
   mutate(month = factor(month.abb[month],levels=month.abb)) %>% 
   ggplot(aes(lat, upwelling_prop)) +
-  geom_line(aes(color = month), show.legend = FALSE) +
+  geom_line(aes(color = month), 
+            size = 1.2,
+            show.legend = FALSE) +
   geom_vline(xintercept = 42.5, lty = 2) +
   geom_vline(xintercept = 48.4, lty = 2) +
   facet_wrap(~month) +
-  scale_x_continuous(labels = label_number(suffix ="\u00b0")) +
+  scale_x_continuous(breaks = c(42.5, 45, 48.4, 50),
+                     labels = label_number(suffix ="\u00b0")) +
   scale_y_continuous(labels = percent) +
   expand_limits(y = 0) +
+  theme(axis.text.x = element_text(angle = -30, vjust = 1, hjust = 0)) +
   labs(x = NULL,
        y = "Upwelling Percentage",
-       title = "Upwelling Percentage by Latitude: 1982-2021")
+       title = "Upwelling Percentage by Latitude: 1982-2021",
+       subtitle = "Dotted lines at Upwelling Hot Spots")
 ```
 
 
@@ -1235,10 +1255,127 @@ final_df %>%
                        na.value = "white",
                        name = "Upwelling Percentage",
                        labels = percent) +
-  theme(axis.text.x = element_text(angle = 90, vjust = 1, hjust = 0)) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 1, hjust = 0),
+        legend.position = "bottom") +
   ggtitle("Upwelling Percentage by Month for each Year Facetted by Latitude Bins",
           subtitle = "1982 ~ 2020")
 
+```
+
+
+## Patch Heatmaps together for blogpost
+
+```{r}
+p3 <- final_df_processed_heatmap %>%
+  ggplot(aes(month, lat, fill = upwelling_prop)) +
+  geom_tile() +
+  scale_x_continuous(name = NULL,
+                     breaks = c(1:12),
+                     labels = month.abb,
+                     expand = c(0, 0)) + 
+  scale_y_continuous(name = NULL, expand = c(0, 0),
+                     labels = label_number(suffix ="\u00b0")) +
+  scale_fill_gradient2(midpoint = mean(final_df_processed_heatmap$upwelling_prop, na.rm = TRUE),
+                       low = "grey",
+                       mid = "white",
+                       high = "brown",
+                       na.value = "white",
+                       name = "Upwelling Percentage",
+                       labels = percent,
+                       breaks = c(0, 0.5, 0.95)) +
+  theme(legend.position = "bottom") +
+  ggtitle("Upwelling % by Latitude for each Month",
+          subtitle = "1982 ~ 2020")
+
+
+p1 <- final_df_decade_heatmap %>%
+  ggplot(aes(decade, lat, fill = upwelling_prop)) +
+  geom_tile() +
+  scale_x_continuous(name = NULL,
+                     breaks = c(1980, 1990, 2000, 2010),
+                     labels = c("1980s", "1990s", "2000s", "2010s"),
+                     expand = c(0, 0)) + 
+  scale_y_continuous(name = NULL, expand = c(0, 0),
+                     labels = label_number(suffix ="\u00b0")) +
+  scale_fill_gradient2(name = "Upwelling Percentage",
+                       midpoint = mean(final_df_decade_heatmap$upwelling_prop, na.rm = TRUE),
+                       low = "grey",
+                       mid = "white",
+                       high = "brown",
+                       na.value = "white",
+                       labels = percent,
+                       breaks = c(0.15, 0.35, 0.5)
+  ) +
+  theme(legend.position = "bottom") +
+  ggtitle("Upwelling % by Latitude for each Decade",
+          subtitle = "1982 ~ 2020")
+
+
+
+p2 <- prop_days_upwelling %>% 
+  ggplot(aes(year, month, fill = upwelling_prop)) +
+  geom_tile() +
+  scale_x_continuous(name = NULL,
+                     breaks = c(1982, 1985, 1990, 1995,
+                                2000, 2005, 2010, 2015,
+                                2020),
+                     expand = c(0, 0)) + 
+  scale_y_continuous(name = NULL, expand = c(0, 0),
+                     breaks = 1:12,
+                     labels = month.abb) +
+  scale_fill_gradient2(name = "Upwelling Percentage",
+                       midpoint = mean(prop_days_upwelling$upwelling_prop, na.rm = TRUE),
+                       low = "grey",
+                       mid = "white",
+                       high = "brown",
+                       na.value = "white",
+                       labels = percent,
+                       breaks = c(0, 0.5, 0.95)) +
+  theme(legend.position = "bottom") +
+  ggtitle("Upwelling % by Month for each Year",
+          subtitle = "1982 ~ 2020")
+
+
+
+p4 <- final_df %>% 
+  # Get distinct values of is_upwelling_total for each day
+  distinct(year, month, day, lat, is_upwelling_total) %>% 
+  filter(lat < 50) %>% 
+  mutate(lat_binned = cut(lat, breaks = c(40, 43.5, 46.125, 47.625, 50),
+                          labels = c("[40\u00b0, 43.5\u00b0]",
+                                     "[43.5\u00b0, 46.125\u00b0]",
+                                     "[46.125\u00b0, 47.625\u00b0]",
+                                     "[47.625\u00b0, 50\u00b0]"))) %>%
+  group_by(year, month, lat_binned) %>% 
+  summarise(upwelling_prop = mean(is_upwelling_total, na.rm = TRUE), .groups = "drop") %>% 
+  ggplot(aes(year, month, fill = upwelling_prop)) +
+  geom_tile() +
+  facet_wrap(~lat_binned) +
+  scale_x_continuous(name = NULL,
+                     breaks = c(1982, 1985, 1990, 1995,
+                                2000, 2005, 2010, 2015,
+                                2020),
+                     expand = c(0, 0)) + 
+  scale_y_continuous(name = NULL, expand = c(0, 0),
+                     breaks = c(1,3, 6, 9, 12),
+                     labels = month.abb[c(1,3, 6, 9, 12)]) +
+  scale_fill_gradient2(midpoint = mean(prop_days_upwelling$upwelling_prop, na.rm = TRUE),
+                       low = "grey",
+                       mid = "white",
+                       high = "brown",
+                       na.value = "white",
+                       name = "Upwelling Percentage",
+                       labels = percent,
+                       breaks = c(0, 0.5, 1)) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 1, hjust = 0),
+        legend.position = "bottom") +
+  ggtitle("Upwelling % Facetted by Latitude Bins",
+          subtitle = "1982 ~ 2020")
+
+
+# Patchwork time
+(p1 | p2) /
+  (p3 | p4)
 ```
 
 
@@ -1257,7 +1394,7 @@ upw_index <- read_csv("data/erdUI426hr_c91c_fb11_7659.csv") %>%
             lat = as.numeric(latitude),
             lon = as.numeric(longitude))
 
-# Change 6hour into daily
+# Change 6hour into daily avgs
 upw_index_daily <- upw_index %>% 
   group_by(date, lon, lat) %>% 
   # Average 6 hour upwelling index to get daily index
@@ -1286,15 +1423,6 @@ Upwelling Index, 39N 125W, 6-hourly                erdUI396hr
 
 
 
-Find latitude or longitude
-```{r}
-ui_search_df <- ui_search$info
-
-ui_search_df %>% 
-  filter(str_detect(title, "125W"))
-```
-
-
 Call datatset
 ```{r}
 first_df <- tabledap("erdUI456hr") %>% 
@@ -1305,7 +1433,6 @@ first_df <- tabledap("erdUI456hr") %>%
             upwelling_index,
             lat = as.numeric(latitude),
             lon = as.numeric(longitude)) %>% 
-  filter(date == "2010-01-01") %>% 
   group_by(date, lon, lat) %>% 
   # Average 6 hour upwelling index to get daily index
   summarise(upwelling_index_daily_avg = mean(upwelling_index), .groups = "drop")
@@ -1319,7 +1446,6 @@ second_df <- tabledap("erdUI486hr") %>%
             upwelling_index,
             lat = as.numeric(latitude),
             lon = as.numeric(longitude)) %>% 
-  filter(date == "2010-01-01") %>% 
   group_by(date, lon, lat) %>% 
   # Average 6 hour upwelling index to get daily index
   summarise(upwelling_index_daily_avg = mean(upwelling_index), .groups = "drop")
@@ -1334,13 +1460,13 @@ ui_df <- first_df %>%
 ## Line plots of Monthly upwelling index
 ```{r}
 ui <- tabledap("erdUI456hr") %>% 
-    as_tibble() %>%  
-    dplyr::select(-station_id) %>%
-    # Convert date column to Date type
-    transmute(date = as.Date(time),
-              upwelling_index,
-              lat = as.numeric(latitude),
-              lon = as.numeric(longitude)) %>% 
+  as_tibble() %>%  
+  dplyr::select(-station_id) %>%
+  # Convert date column to Date type
+  transmute(date = as.Date(time),
+            upwelling_index,
+            lat = as.numeric(latitude),
+            lon = as.numeric(longitude)) %>% 
   filter(date >= "1980-01-01")
 
 ui %>% 
@@ -1381,7 +1507,7 @@ ui %>%
   labs(x = NULL,
        y = "Monthly Upwelling Index",
        title = "Monthly Averages of Upwelling Index \nFrom 1980-01-01 to 2021-05-31")
-  
+
 ```
 
 
@@ -1429,7 +1555,7 @@ ggplot() +
                        mid = "white",
                        high = "red",
                        na.value = "grey20") +
-    coord_quickmap() +
+  coord_quickmap() +
   theme(panel.grid.major = element_blank(), 
         panel.grid.minor = element_blank(),
         panel.background = element_blank(),
@@ -1441,5 +1567,434 @@ ggplot() +
        fill = "Sea Surface Temperature (SST)",
        title = "Latitude (42.625, 52.125) and Longitude (229.875, 236.625)",
        subtitle = "Annotated with Average Upwelling Index on 2010-01-01")
+```
+
+
+
+## Heatmaps of First/Last day of upwelling (automatic detection)
+
+`final_df` is dataset with date, is_upwelling_total, year, month, day columns
+
+```{r}
+# Dataset with first month-day of upwelling (detexted by automatic detection)
+# and last month-day of upwelling (detected by automatic detection)
+final_df_upwelling_day <- final_df %>% 
+  filter(is_upwelling_total) %>% 
+  distinct(year, month, day, lat) %>%
+  # filter for upwelling months: June to Oct
+  filter(month %in% c(6:10)) %>% 
+  group_by(year, lat) %>% 
+  summarize(first_month = first(month),
+            first_day = first(day),
+            last_month = last(month),
+            last_day = last(day), 
+            .groups = "drop") %>% 
+  mutate(first_month_day = paste0(year, "-0", first_month, "-", first_day),
+         first_day_of_year = yday(first_month_day),
+         last_month_day = paste0(year, "-", last_month, "-", last_day),
+         last_day_of_year = yday(last_month_day))
+
+final_df_upwelling_day
+```
+
+
+#### First Day
+```{r}
+final_df_upwelling_day %>% 
+  ggplot(aes(year, lat)) +
+  geom_tile(aes(fill = first_day_of_year)) +
+  scale_x_continuous(name = NULL,
+                     breaks = c(seq(from = 1982, to = 2020, by = 5), 2020),
+                     expand = c(0, 0)) + 
+  scale_y_continuous(name = NULL, 
+                     expand = c(0, 0),
+                     labels = label_number(suffix ="\u00b0")) +
+  scale_fill_gradientn(colours = rev(rainbow(3)),
+                       name = "First day of upwelling",
+                       breaks = c(180, 210, 240),
+                       labels = c("July 1st", "Aug 1st", "Sept 1st")) +
+  ggtitle("First Day of Upwelling by Latitude: 1982 ~ 2020",
+          subtitle = "Filtered for June~Oct (Upwelling Months)")
+```
+
+
+
+### Last Day
+```{r}
+final_df_upwelling_day %>% 
+  ggplot(aes(year, lat)) +
+  geom_tile(aes(fill = last_day_of_year)) +
+  scale_x_continuous(name = NULL,
+                     breaks = c(seq(from = 1982, to = 2020, by = 5), 2020),
+                     expand = c(0, 0)) + 
+  scale_y_continuous(name = NULL, 
+                     expand = c(0, 0),
+                     labels = label_number(suffix ="\u00b0N")) +
+  scale_fill_gradientn(colours=rainbow(4))
+scale_fill_gradient2(midpoint = mean(final_df_upwelling_day$last_day_of_year, na.rm = TRUE),
+                     low = "grey",
+                     mid = "white",
+                     high = "brown",
+                     na.value = "white",
+                     name = "Last day of upwelling") +
+  ggtitle("Last Day of Upwelling by Latitude: 1982 ~ 2020",
+          subtitle = "Filtered for June~Oct (Upwelling Months)")
+```
+
+
+
+### Line Plot of Mean First and Last Day Across all latitudes
+```{r}
+final_df_upwelling_day %>% 
+  group_by(year) %>% 
+  summarise(avg_first_day_of_year = mean(first_day_of_year),
+            avg_last_day_of_year = mean(last_day_of_year)) %>% 
+  ggplot(aes(year, avg_first_day_of_year)) +
+  geom_line(color = "midnightblue", size = 1.2)
+
+
+final_df_upwelling_day %>% 
+  group_by(year) %>% 
+  summarise(avg_first_day_of_year = mean(first_day_of_year),
+            avg_last_day_of_year = mean(last_day_of_year)) %>% 
+  pivot_longer(cols = -year,
+               names_to = "day_type",
+               values_to = "avg_day") %>% 
+  mutate(day_type = fct_reorder(day_type, -avg_day),
+         day_type = ifelse(day_type == "avg_first_day_of_year", "First Day of Upwelling", "Last Day of Upwelling")) %>% 
+  ggplot(aes(year, avg_day, color = day_type)) +
+  geom_line(size = 1.2) +
+  scale_x_continuous(breaks = c(1982, 1985, 1990, 1995, 2000,
+                                2005, 2010, 2015, 2020)) +
+  expand_limits(y = 100) +
+  labs(x = NULL,
+       y = "Average Day",
+       color = NULL,
+       title = "Average of First, Last Day of Upwelling across all Latitudes",
+       subtitle = "1982-2020") +
+  theme(legend.position = c(0.88, 0.1))
+
+```
+
+
+
+
+## Automatic Detection Function: Zonal Mean
+
+```{r}
+# Raw data
+df_raw <- read_csv("data/erddap_1982-01-01_2021-06-29_lat_40.625_50.625_lon_229.875_236.625.csv")
+
+# Process data
+df_processed <- df_raw %>% 
+  # Get rid of miscellaneous zlev in first row
+  slice(-1) %>% 
+  # zlev is a column of zeroes, so get rid of that
+  dplyr::select(-zlev) %>% 
+  # Convert into date
+  mutate(time = ymd_hms(time)) %>% 
+  # Set column names
+  rename(date = time,
+         lat = latitude,
+         lon = longitude) %>% 
+  # Convert date column to Date type
+  mutate(date = as.Date(date),
+         lat = as.numeric(lat),
+         lon = as.numeric(lon),
+         sst = as.numeric(sst))
+
+
+# mask out Puget Sound, Strait of Juan de Fuca and Georgia Strait
+masks <- list(c(235.4488, 236.884, 47.87651, 50.13138),
+              c(232.2913, 233.8987, 50.28689, 51.60871),
+              c(234.4154, 235.9654, 49.04283, 50.09251))
+
+for (m1 in masks) {
+  # index of Puget Sound, Strait of Juan de Fuca or Georgia Strait
+  mask_loc <- df_processed$lat <= m1[4] & df_processed$lat >= m1[3] &
+    df_processed$lon <= m1[2] & df_processed$lon >= m1[1]
+  # Change to NA
+  df_processed$sst[mask_loc] <- NA
+}
+
+
+# Create df for specific date
+df_processed_date <- df_processed %>%
+  mutate(lon = lon - 360)
+
+# Automatic Detection Method
+# Find SST values next to land (sst_coast_X) and check if upwelling
+is_upwelling <- df_processed_date %>% 
+  group_by(date, lat) %>% 
+  # 1 longitude tick away from land
+  mutate(sst_coast = last(na.omit(sst)),
+         # 8 longitude ticks away from land (2 degrees in longitude)
+         sst_sea_1 = nth(na.omit(sst), -9),
+         # In between longitudes
+         sst_sea_2 = nth(na.omit(sst), -10),
+         sst_sea_3 = nth(na.omit(sst), -11),
+         sst_sea_4 = nth(na.omit(sst), -12),
+         # 12 longitude ticks away from land (3 degrees in longitude)
+         sst_sea_5 = nth(na.omit(sst), -13)) %>% 
+  ungroup() %>% 
+  group_by(date, lat, sst_coast) %>% 
+  summarize(sst_zonal_mean = (sst_sea_1 + sst_sea_2 + sst_sea_3 + 
+                                sst_sea_4 + sst_sea_5) / 5) %>%  
+  ungroup() %>% 
+  distinct(date, lat, sst_coast, sst_zonal_mean) %>%
+  mutate(is_upwelling =  sst_zonal_mean - sst_coast > 2)
+
+# Join
+final_df <- df_processed_date %>% 
+  left_join(is_upwelling, by = c("date", "lat")) %>%
+  ungroup() %>% 
+  mutate(year = year(date),
+         month = month(date),
+         day = day(date)) %>% 
+  # Filter out 2021
+  filter(year < 2021) %>% 
+  # Rearrange columns
+  select(date, year, month, day, everything())
+
+# final_df for upwelling
+final_df_upwelling <- final_df %>% 
+  filter(is_upwelling)
+
+
+# Don't need to na.rm = TRUE because you want to preserve the land
+summarise_by_month <- function(tbl) {
+  
+  tbl %>%
+    group_by(month, lat, lon) %>% 
+    summarise(upwelling_prop = mean(is_upwelling), .groups = "drop")
+}
+
+
+# Don't need to na.rm = TRUE because you want to preserve the land
+summarise_by_year <- function(tbl) {
+  
+  tbl %>%
+    group_by(year, lat, lon) %>% 
+    summarise(upwelling_prop = mean(is_upwelling), .groups = "drop")
+  
+}
+
+# Don't need to na.rm = TRUE because you want to preserve the land
+summarise_by_decade <- function(tbl) {
+  
+  tbl %>%
+    mutate(decade = (year %/% 10) * 10) %>% 
+    group_by(decade, lat, lon) %>% 
+    summarise(upwelling_prop = mean(is_upwelling), .groups = "drop")
+  
+}
+```
+
+
+
+### Lineplot / Heatmaps
+
+```{r}
+# By Year
+final_df_year <- final_df %>%
+  summarise_by_year()
+
+# Plot
+final_df_year %>%
+  ggplot(aes(lat, upwelling_prop)) +
+  geom_line(color = "midnightblue", 
+            size = 1.1,
+            show.legend = FALSE) +
+  geom_vline(xintercept = 42.5, lty = 2) +
+  geom_vline(xintercept = 48.4, lty = 2) +
+  facet_wrap(~year) +
+  scale_x_continuous(breaks = c(42.5, 45, 48.4, 50),
+                     labels = label_number(suffix ="\u00b0")) +
+  scale_y_continuous(labels = percent) +
+  expand_limits(y = 0) +
+  theme(axis.text.x = element_text(angle = 60, vjust = 1, hjust=1)) +
+  labs(x = NULL,
+       y = "Upwelling Percentage",
+       title = "Upwelling Percentage by Latitude: 1982-2020",
+       subtitle = "Dotted lines at Upwelling Hot Spots")
+
+
+# By Year Heatmap
+final_df_year_heatmap <- final_df_year %>% 
+  distinct(year, lat, upwelling_prop) %>% 
+  # Filter out 50 degree latitude because NA
+  filter(lat < 50)
+
+# Plot all months
+final_df_year_heatmap %>% 
+  ggplot(aes(year, lat, fill = upwelling_prop)) +
+  geom_tile() +
+  scale_x_continuous(name = NULL,
+                     breaks = c(seq(from = 1982, to = 2020, by = 5), 2020),
+                     expand = c(0, 0)) + 
+  scale_y_continuous(name = NULL, expand = c(0, 0),
+                     labels = label_number(suffix ="\u00b0")) +
+  scale_fill_gradient2(midpoint = mean(final_df_year_heatmap$upwelling_prop, na.rm = TRUE),
+                       low = "grey",
+                       mid = "white",
+                       high = "brown",
+                       na.value = "white",
+                       name = "Upwelling Percentage",
+                       labels = percent) +
+  ggtitle("Upwelling Percentage by Latitude for each Year",
+          subtitle = "1982 ~ 2020")
+
+
+# Plot only upwelling months
+final_df %>%
+  filter(month %in% 6:10) %>% 
+  summarise_by_year() %>%
+  distinct(year, lat, upwelling_prop) %>% 
+  # Filter out 50 degree latitude because NA
+  filter(lat < 50) %>% 
+  ggplot(aes(year, lat, fill = upwelling_prop)) +
+  geom_tile() +
+  scale_x_continuous(name = NULL,
+                     breaks = c(seq(from = 1982, to = 2020, by = 5), 2020),
+                     expand = c(0, 0)) + 
+  scale_y_continuous(name = NULL, expand = c(0, 0),
+                     labels = label_number(suffix ="\u00b0")) +
+  scale_fill_gradient2(midpoint = mean(final_df_year_heatmap$upwelling_prop, na.rm = TRUE),
+                       low = "grey",
+                       mid = "white",
+                       high = "brown",
+                       na.value = "white",
+                       name = "Upwelling Percentage",
+                       labels = percent) +
+  ggtitle("Upwelling Percentage by Latitude for each Year",
+          subtitle = "1982 ~ 2020 Upwelling Months (June to Oct)")
+
+
+
+
+# By Decade
+final_df_decade <- final_df %>%
+  summarise_by_decade()
+
+# Lineplot
+final_df_decade %>%
+  # Filter out 2020 because not enough data
+  filter(decade < 2020) %>% 
+  mutate(decade = as.character(decade),
+         decade = case_when(
+           decade == "1980" ~ "1980s",
+           decade == "1990" ~ "1990s",
+           decade == "2000" ~ "2000s",
+           decade == "2010" ~ "2010s",
+           TRUE ~ decade
+         )) %>% 
+  ggplot(aes(lat, upwelling_prop)) +
+  geom_line(color = "midnightblue", 
+            size = 1.2,
+            show.legend = FALSE) +
+  geom_vline(xintercept = 42.5, lty = 2) +
+  geom_vline(xintercept = 48.4, lty = 2) +
+  facet_wrap(~decade) +
+  scale_x_continuous(breaks = c(42.5, 45, 48.4, 50),
+                     labels = scales::label_number(suffix ="\u00b0")) +
+  scale_y_continuous(labels = scales::percent) +
+  expand_limits(y = 0) +
+  theme(axis.text.x = element_text(angle = 60, vjust = 1, hjust=1)) +
+  labs(x = NULL,
+       y = "Upwelling Percentage",
+       title = "Upwelling Percentage by Latitude Facetted by Decade",
+       subtitle = "Dotted lines at Upwelling Hot Spots")
+
+# By Decade Heatmap
+final_df_decade_heatmap <- final_df_decade %>% 
+  distinct(decade, lat, upwelling_prop) %>% 
+  # Filter out 2020 because not enough data
+  # Filter out 50 degree latitude because NA
+  filter(decade < 2020,
+         lat < 50)
+
+# Plot
+final_df_decade_heatmap %>% 
+  ggplot(aes(decade, lat, fill = upwelling_prop)) +
+  geom_tile() +
+  scale_x_continuous(name = NULL,
+                     breaks = c(1980, 1990, 2000, 2010),
+                     expand = c(0, 0)) + 
+  scale_y_continuous(name = NULL, expand = c(0, 0),
+                     labels = label_number(suffix ="\u00b0")) +
+  scale_fill_gradient2(midpoint = mean(final_df_decade_heatmap$upwelling_prop, na.rm = TRUE),
+                       low = "grey",
+                       mid = "white",
+                       high = "brown",
+                       na.value = "white",
+                       name = "Upwelling Percentage",
+                       labels = percent) +
+  theme(legend.position = "bottom") +
+  ggtitle("Upwelling Percentage by Latitude for each Decade",
+          subtitle = "1982 ~ 2020")
+
+
+
+# By Month
+final_df_month <- final_df %>%
+  summarise_by_month()
+
+
+
+final_df_month %>% 
+  mutate(month = factor(month.abb[month],levels=month.abb)) %>% 
+  ggplot(aes(lat, upwelling_prop)) +
+  geom_line(aes(color = month), 
+            size = 1.2,
+            show.legend = FALSE) +
+  geom_vline(xintercept = 42.5, lty = 2) +
+  geom_vline(xintercept = 48.4, lty = 2) +
+  facet_wrap(~month) +
+  scale_x_continuous(breaks = c(42.5, 45, 48.4, 50),
+                     labels = label_number(suffix ="\u00b0")) +
+  scale_y_continuous(labels = percent) +
+  expand_limits(y = 0) +
+  theme(axis.text.x = element_text(angle = -30, vjust = 1, hjust = 0)) +
+  labs(x = NULL,
+       y = "Upwelling Percentage",
+       title = "Upwelling Percentage by Latitude: 1982-2021",
+       subtitle = "Dotted lines at Upwelling Hot Spots")
+
+
+
+
+# Dataset with first month-day of upwelling (detected by automatic detection)
+# and last month-day of upwelling (detected by automatic detection)
+final_df_upwelling_day <- final_df %>% 
+  filter(is_upwelling) %>% 
+  distinct(year, month, day, lat) %>%
+  # filter for upwelling months: June to Oct
+  filter(month %in% c(6:10)) %>% 
+  group_by(year, lat) %>% 
+  summarize(first_month = first(month),
+            first_day = first(day),
+            last_month = last(month),
+            last_day = last(day), 
+            .groups = "drop") %>% 
+  mutate(first_month_day = paste0(year, "-0", first_month, "-", first_day),
+         first_day_of_year = yday(first_month_day),
+         last_month_day = paste0(year, "-", last_month, "-", last_day),
+         last_day_of_year = yday(last_month_day))
+
+final_df_upwelling_day %>% 
+  ggplot(aes(year, lat)) +
+  geom_tile(aes(fill = first_day_of_year)) +
+  scale_x_continuous(name = NULL,
+                     breaks = c(seq(from = 1982, to = 2020, by = 5), 2020),
+                     expand = c(0, 0)) + 
+  scale_y_continuous(name = NULL, 
+                     expand = c(0, 0),
+                     labels = label_number(suffix ="\u00b0")) +
+  scale_fill_gradientn(colours = rev(rainbow(3)),
+                       name = "First day of upwelling",
+                       breaks = c(180, 210, 240),
+                       labels = c("July 1st", "Aug 1st", "Sept 1st")) +
+  ggtitle("First Day of Upwelling by Latitude: 1982 ~ 2020",
+          subtitle = "Filtered for June~Oct (Upwelling Months)")
 ```
 
