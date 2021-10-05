@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="" xml:lang="">
+  <head>
+    <title>Changes in the Seasonality and Duration of Upwelling off the U.S. Pacific Northwest</title>
+    <meta charset="utf-8" />
+    <meta name="author" content="Howard Baek, Elizabeth Eli Holmes" />
+    <meta name="date" content="2021-10-05" />
+    <script src="libs/header-attrs-2.9/header-attrs.js"></script>
+    <link href="libs/remark-css-0.0.1/default.css" rel="stylesheet" />
+    <link href="libs/remark-css-0.0.1/default-fonts.css" rel="stylesheet" />
+  </head>
+  <body>
+    <textarea id="source">
+class: center, middle, inverse, title-slide
+
+# Changes in the Seasonality and Duration of Upwelling off the U.S. Pacific Northwest
+## Using an Automatic Detection Method
+### Howard Baek, Elizabeth Eli Holmes
+### 2021-10-05
+
+---
+
+
+# Agenda
+
+1. Introduction to Upwelling &amp; Importance of Upwelling
+
+2. Automatic Detection Method: Algorithm for Detecting Upwelling
+
+3. Our Automatic Detection Method (ADM)
+
+4. Relationship of Upwelling Index with ADM
+
+5. Results from our ADM
+
+6. Conclusion 
+
+---
+
+# The Upwelling Process
+
+![](https://images.squarespace-cdn.com/content/v1/59149d9a6a49631b4f066334/1583205905877-JQM3GUSXFKEPKG4JIMXB/UpwellingDetailed_Gif.gif?format=1000w)
+
+
+---
+
+# The Importance of Upwelling
+
+.pull-left[
+![](https://media.nationalgeographic.org/assets/photos/000/278/27837.jpg)
+]
+
+.pull-right[
+- Brings nutrient rich water to the surface 
+
+- Supplies nutrition necessary for biological productivity
+
+- Coastal upwelling regions contribute roughly 50 percent of the world’s fisheries landings
+
+]
+
+
+---
+
+# Dataset
+
+.pull-left[
+![](https://user-images.githubusercontent.com/50791792/128484169-e064642f-33be-4b3a-9058-eac7240bc864.png)
+]
+
+.pull-right[
+- Daily Optimum Interpolation (OI) SST 
+
+- 4 columns: time, latitude, longitude, and SST (sea surface temperature)
+
+- **SST** is defined as the water temperature close to the ocean’s surface.
+
+]
+
+
+---
+
+# Past Work in Detecting Upwelling
+
+.pull-left[
+
+Gidhagen (1987): _Abnormal temperature drop of at least 2°C compared to earlier and surrounding measurements_
+
+&lt;img src="graphs/presentation-images/gidhagen-paper.png" width="1392" /&gt;
+
+
+]
+
+--
+
+
+.pull-right[
+
+Lehmann, Myrberg, and Höflich (2012): _Temperature difference for each individual pixel from the zonal mean temperature, for every pixel line_
+
+
+&lt;img src="graphs/presentation-images/lehman-paper.png" width="1461" /&gt;
+
+
+]
+
+
+
+---
+
+# Our Automatic Detection Method (ADM)
+
+* Looks at each latitude and finds the SST of the coastal water (water closest to land) and the SST of water 2 and 3 degrees away from land (_SST coast 2_ and _SST coast 3_)
+
+
+* Computes two differences: the difference in SST between the coastal water and _SST coast 2_ and the difference in SST between the coastal water and _SST coast 3_.
+
+
+* Checks if either of these two differences exceeds a threshold of 2°C
+
+  + If it does, we indicate **upwelling** at the specific latitude
+  + If not, we indicate **non-upwelling**.
+  
+  
+---
+
+# Our Automatic Detection Method (ADM)
+
+
+&lt;img src="http://insidethetv.rbind.io/post/2021-09-10-automatic-detection-of-upwelling/images/stamen-map-final.png" height="520px" /&gt;
+
+
+
+---
+
+
+# Exploration of Upwelling Percentage
+
+&gt; Upwelling percentage: Proportion of days over relevant timeframe in a figure that are categorized as upwelling by our automatic detection method.
+
+---
+
+# Exploration of Upwelling Percentage (I)
+
+
+![](http://insidethetv.rbind.io/post/2021-09-10-automatic-detection-of-upwelling/images/heatmap-upwelling-percentage-decade.png)
+
+
+---
+
+# Exploration of Upwelling Percentage (II)
+
+![](http://insidethetv.rbind.io/post/2021-09-10-automatic-detection-of-upwelling/images/heatmap-upwelling-percentage-month-year.png)
+
+
+---
+
+# Exploration of Upwelling Percentage (III)
+
+![](http://insidethetv.rbind.io/post/2021-09-10-automatic-detection-of-upwelling/images/heatmap-upwelling-percentage-latitude-bins.png)
+
+
+
+---
+
+# Exploration of Upwelling Percentage (IV)
+
+![](http://insidethetv.rbind.io/post/2021-09-10-automatic-detection-of-upwelling/images/heatmap-upwelling-percentage-latitude-month.png)
+
+
+---
+
+# Changes in Upwelling Phenology
+
+![](http://insidethetv.rbind.io/post/2021-09-10-automatic-detection-of-upwelling/images/first-day-upwelling.png)
+
+
+---
+
+# Changes in Upwelling Duration
+
+&lt;img src="http://insidethetv.rbind.io/post/2021-09-10-automatic-detection-of-upwelling/images/duration-upwelling.png" height="520px" /&gt;
+
+
+
+---
+
+# Discussion of ADM
+
+- _Naidu et al. (1999): Studied monsoonal upwelling along the West / East coasts of India using monthly mean local temperature anomaly (LTA)_
+
+--
+
+- _Smitha et al. (2008): Also used LTA as an upwelling index_
+
+--
+
+- _Holmes et al.(2021): Used SST differential to study upwelling in the Southeast Arabian Sea_
+
+
+---
+
+# Discussion of Strength of Upwelling
+
+- _Hickey and Banas (2003): In general, the strength and duration of upwelling increases to the south in the PNW_
+
+--
+
+- _Bograd et al. (2009): Developed a set of indexes to understand the coastal upwelling in the California Current large marine ecosystem (CCLME)_
+
+
+
+---
+
+# Conclusion
+
+1. Southern latitudes (40°N ~ 45°N) had higher upwelling percentages than Northern latitudes (45°N ~ 50°N)
+
+2. Found the upwelling months (upwelling percentage higher than 25%) to be from June to October and the non-upwelling months from November to May
+
+3. Upwelling started later for northern latitudes (45.0°N to 50.0°N) around August and September. 
+
+4. Northern latitudes had shorter duration of upwelling than the southern latitudes.
+
+
+---
+
+# Thank You for listening!
+
+
+
+![](https://media4.giphy.com/media/F0NNF3rFvE13mRrzDz/giphy.gif?cid=ecf05e47vvvtedb1mpzf2w3nv03yvppayhmsfxk8rso0brss&amp;rid=giphy.gif&amp;ct=g)
+
+&lt;br&gt;
+
+### Contact: howardba@uw.edu
+    </textarea>
+<style data-target="print-only">@media screen {.remark-slide-container{display:block;}.remark-slide-scaler{box-shadow:none;}}</style>
+<script src="https://remarkjs.com/downloads/remark-latest.min.js"></script>
+<script>var slideshow = remark.create({
+"highlightStyle": "github",
+"highlightLines": true,
+"countIncrementalSlides": false
+});
+if (window.HTMLWidgets) slideshow.on('afterShowSlide', function (slide) {
+  window.dispatchEvent(new Event('resize'));
+});
+(function(d) {
+  var s = d.createElement("style"), r = d.querySelector(".remark-slide-scaler");
+  if (!r) return;
+  s.type = "text/css"; s.innerHTML = "@page {size: " + r.style.width + " " + r.style.height +"; }";
+  d.head.appendChild(s);
+})(document);
+
+(function(d) {
+  var el = d.getElementsByClassName("remark-slides-area");
+  if (!el) return;
+  var slide, slides = slideshow.getSlides(), els = el[0].children;
+  for (var i = 1; i < slides.length; i++) {
+    slide = slides[i];
+    if (slide.properties.continued === "true" || slide.properties.count === "false") {
+      els[i - 1].className += ' has-continuation';
+    }
+  }
+  var s = d.createElement("style");
+  s.type = "text/css"; s.innerHTML = "@media print { .has-continuation { display: none; } }";
+  d.head.appendChild(s);
+})(document);
+// delete the temporary CSS (for displaying all slides initially) when the user
+// starts to view slides
+(function() {
+  var deleted = false;
+  slideshow.on('beforeShowSlide', function(slide) {
+    if (deleted) return;
+    var sheets = document.styleSheets, node;
+    for (var i = 0; i < sheets.length; i++) {
+      node = sheets[i].ownerNode;
+      if (node.dataset["target"] !== "print-only") continue;
+      node.parentNode.removeChild(node);
+    }
+    deleted = true;
+  });
+})();
+(function() {
+  "use strict"
+  // Replace <script> tags in slides area to make them executable
+  var scripts = document.querySelectorAll(
+    '.remark-slides-area .remark-slide-container script'
+  );
+  if (!scripts.length) return;
+  for (var i = 0; i < scripts.length; i++) {
+    var s = document.createElement('script');
+    var code = document.createTextNode(scripts[i].textContent);
+    s.appendChild(code);
+    var scriptAttrs = scripts[i].attributes;
+    for (var j = 0; j < scriptAttrs.length; j++) {
+      s.setAttribute(scriptAttrs[j].name, scriptAttrs[j].value);
+    }
+    scripts[i].parentElement.replaceChild(s, scripts[i]);
+  }
+})();
+(function() {
+  var links = document.getElementsByTagName('a');
+  for (var i = 0; i < links.length; i++) {
+    if (/^(https?:)?\/\//.test(links[i].getAttribute('href'))) {
+      links[i].target = '_blank';
+    }
+  }
+})();
+// adds .remark-code-has-line-highlighted class to <pre> parent elements
+// of code chunks containing highlighted lines with class .remark-code-line-highlighted
+(function(d) {
+  const hlines = d.querySelectorAll('.remark-code-line-highlighted');
+  const preParents = [];
+  const findPreParent = function(line, p = 0) {
+    if (p > 1) return null; // traverse up no further than grandparent
+    const el = line.parentElement;
+    return el.tagName === "PRE" ? el : findPreParent(el, ++p);
+  };
+
+  for (let line of hlines) {
+    let pre = findPreParent(line);
+    if (pre && !preParents.includes(pre)) preParents.push(pre);
+  }
+  preParents.forEach(p => p.classList.add("remark-code-has-line-highlighted"));
+})(document);</script>
+
+<script>
+slideshow._releaseMath = function(el) {
+  var i, text, code, codes = el.getElementsByTagName('code');
+  for (i = 0; i < codes.length;) {
+    code = codes[i];
+    if (code.parentNode.tagName !== 'PRE' && code.childElementCount === 0) {
+      text = code.textContent;
+      if (/^\\\((.|\s)+\\\)$/.test(text) || /^\\\[(.|\s)+\\\]$/.test(text) ||
+          /^\$\$(.|\s)+\$\$$/.test(text) ||
+          /^\\begin\{([^}]+)\}(.|\s)+\\end\{[^}]+\}$/.test(text)) {
+        code.outerHTML = code.innerHTML;  // remove <code></code>
+        continue;
+      }
+    }
+    i++;
+  }
+};
+slideshow._releaseMath(document);
+</script>
+<!-- dynamically load mathjax for compatibility with self-contained -->
+<script>
+(function () {
+  var script = document.createElement('script');
+  script.type = 'text/javascript';
+  script.src  = 'https://mathjax.rstudio.com/latest/MathJax.js?config=TeX-MML-AM_CHTML';
+  if (location.protocol !== 'file:' && /^https?:/.test(script.src))
+    script.src  = script.src.replace(/^https?:/, '');
+  document.getElementsByTagName('head')[0].appendChild(script);
+})();
+</script>
+  </body>
+</html>

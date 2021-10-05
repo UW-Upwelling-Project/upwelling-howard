@@ -1,0 +1,236 @@
+---
+title: "Changes in the Seasonality and Duration of Upwelling off the U.S. Pacific Northwest"
+subtitle: "Using an Automatic Detection Method"
+author: "Howard Baek, Elizabeth Eli Holmes"
+institute: ""
+date: "`r Sys.Date()`"
+output:
+  xaringan::moon_reader:
+    lib_dir: libs
+    nature:
+      highlightStyle: github
+      highlightLines: true
+      countIncrementalSlides: false
+---
+
+# Agenda
+
+1. Introduction to Upwelling & Importance of Upwelling
+
+2. Automatic Detection Method: Algorithm for Detecting Upwelling
+
+3. Our Automatic Detection Method (ADM)
+
+4. Relationship of Upwelling Index with ADM
+
+5. Results from our ADM
+
+6. Conclusion 
+
+---
+
+# The Upwelling Process
+
+![](https://images.squarespace-cdn.com/content/v1/59149d9a6a49631b4f066334/1583205905877-JQM3GUSXFKEPKG4JIMXB/UpwellingDetailed_Gif.gif?format=1000w)
+
+
+---
+
+# The Importance of Upwelling
+
+.pull-left[
+![](https://media.nationalgeographic.org/assets/photos/000/278/27837.jpg)
+]
+
+.pull-right[
+- Brings nutrient rich water to the surface 
+
+- Supplies nutrition necessary for biological productivity
+
+- Coastal upwelling regions contribute roughly 50 percent of the world’s fisheries landings
+
+]
+
+
+---
+
+# Dataset
+
+.pull-left[
+![](https://user-images.githubusercontent.com/50791792/128484169-e064642f-33be-4b3a-9058-eac7240bc864.png)
+]
+
+.pull-right[
+- Daily Optimum Interpolation (OI) SST 
+
+- 4 columns: time, latitude, longitude, and SST (sea surface temperature)
+
+- **SST** is defined as the water temperature close to the ocean’s surface.
+
+]
+
+
+---
+
+# Past Work in Detecting Upwelling
+
+.pull-left[
+
+Gidhagen (1987): _Abnormal temperature drop of at least 2°C compared to earlier and surrounding measurements_
+
+```{r, echo = FALSE}
+knitr::include_graphics("graphs/presentation-images/gidhagen-paper.png")
+```
+
+
+]
+
+--
+
+
+.pull-right[
+
+Lehmann, Myrberg, and Höflich (2012): _Temperature difference for each individual pixel from the zonal mean temperature, for every pixel line_
+
+
+```{r, echo = FALSE}
+knitr::include_graphics("graphs/presentation-images/lehman-paper.png")
+```
+
+
+]
+
+
+
+---
+
+# Our Automatic Detection Method (ADM)
+
+* Looks at each latitude and finds the SST of the coastal water (water closest to land) and the SST of water 2 and 3 degrees away from land (_SST coast 2_ and _SST coast 3_)
+
+
+* Computes two differences: the difference in SST between the coastal water and _SST coast 2_ and the difference in SST between the coastal water and _SST coast 3_.
+
+
+* Checks if either of these two differences exceeds a threshold of 2°C
+
+  + If it does, we indicate **upwelling** at the specific latitude
+  + If not, we indicate **non-upwelling**.
+  
+  
+---
+
+# Our Automatic Detection Method (ADM)
+
+
+```{r, echo = FALSE, out.height="520px"}
+knitr::include_graphics("http://insidethetv.rbind.io/post/2021-09-10-automatic-detection-of-upwelling/images/stamen-map-final.png")
+```
+
+
+
+---
+
+
+# Exploration of Upwelling Percentage
+
+> Upwelling percentage: Proportion of days over relevant timeframe in a figure that are categorized as upwelling by our automatic detection method.
+
+---
+
+# Exploration of Upwelling Percentage (I)
+
+
+![](http://insidethetv.rbind.io/post/2021-09-10-automatic-detection-of-upwelling/images/heatmap-upwelling-percentage-decade.png)
+
+
+---
+
+# Exploration of Upwelling Percentage (II)
+
+![](http://insidethetv.rbind.io/post/2021-09-10-automatic-detection-of-upwelling/images/heatmap-upwelling-percentage-month-year.png)
+
+
+---
+
+# Exploration of Upwelling Percentage (III)
+
+![](http://insidethetv.rbind.io/post/2021-09-10-automatic-detection-of-upwelling/images/heatmap-upwelling-percentage-latitude-bins.png)
+
+
+
+---
+
+# Exploration of Upwelling Percentage (IV)
+
+![](http://insidethetv.rbind.io/post/2021-09-10-automatic-detection-of-upwelling/images/heatmap-upwelling-percentage-latitude-month.png)
+
+
+---
+
+# Changes in Upwelling Phenology
+
+![](http://insidethetv.rbind.io/post/2021-09-10-automatic-detection-of-upwelling/images/first-day-upwelling.png)
+
+
+---
+
+# Changes in Upwelling Duration
+
+```{r, echo = FALSE, out.height="520px"}
+knitr::include_graphics("http://insidethetv.rbind.io/post/2021-09-10-automatic-detection-of-upwelling/images/duration-upwelling.png")
+```
+
+
+
+---
+
+# Discussion of ADM
+
+- _Naidu et al. (1999): Studied monsoonal upwelling along the West / East coasts of India using monthly mean local temperature anomaly (LTA)_
+
+--
+
+- _Smitha et al. (2008): Also used LTA as an upwelling index_
+
+--
+
+- _Holmes et al.(2021): Used SST differential to study upwelling in the Southeast Arabian Sea_
+
+
+---
+
+# Discussion of Strength of Upwelling
+
+- _Hickey and Banas (2003): In general, the strength and duration of upwelling increases to the south in the PNW_
+
+--
+
+- _Bograd et al. (2009): Developed a set of indexes to understand the coastal upwelling in the California Current large marine ecosystem (CCLME)_
+
+
+
+---
+
+# Conclusion
+
+1. Southern latitudes (40°N ~ 45°N) had higher upwelling percentages than Northern latitudes (45°N ~ 50°N)
+
+2. Found the upwelling months (upwelling percentage higher than 25%) to be from June to October and the non-upwelling months from November to May
+
+3. Upwelling started later for northern latitudes (45.0°N to 50.0°N) around August and September. 
+
+4. Northern latitudes had shorter duration of upwelling than the southern latitudes.
+
+
+---
+
+# Thank You for listening!
+
+
+
+![](https://media4.giphy.com/media/F0NNF3rFvE13mRrzDz/giphy.gif?cid=ecf05e47vvvtedb1mpzf2w3nv03yvppayhmsfxk8rso0brss&rid=giphy.gif&ct=g)
+
+<br>
+
+### Contact: howardba@uw.edu
