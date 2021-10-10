@@ -79,7 +79,7 @@ output:
 Gidhagen (1987): _Abnormal temperature drop of at least 2°C compared to earlier and surrounding measurements_
 
 ```{r, echo = FALSE}
-knitr::include_graphics("graphs/presentation-images/gidhagen-paper.png")
+knitr::include_graphics("presentation-images/gidhagen-paper.png")
 ```
 
 
@@ -94,7 +94,7 @@ Lehmann, Myrberg, and Höflich (2012): _Temperature difference for each individu
 
 
 ```{r, echo = FALSE}
-knitr::include_graphics("graphs/presentation-images/lehman-paper.png")
+knitr::include_graphics("presentation-images/lehman-paper.png")
 ```
 
 
