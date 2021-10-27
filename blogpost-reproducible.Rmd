@@ -1,0 +1,966 @@
+
+---
+title: Changes in the Seasonality and Duration of Upwelling off the U.S. Pacific Northwest using an Automatic Detection Method
+author: Howard Baek
+date: '2021-09-10'
+slug: []
+categories:
+  - R
+tags:
+  - Academic
+subtitle: 'Reproducible Version'
+summary: 'We introduce a highly effective algorithm for detecting upwelling, the automatic detection method using NOAA satellite image data.'
+authors: [Howard Baek, Elizabeth Eli Holmes]
+lastmod: '2021-09-24T13:07:52-07:00'
+featured: no
+image:
+  caption: ''
+  focal_point: ''
+  preview_only: no
+projects: []
+math: true
+bibliography: "upwelling.bib"
+link_citations: true
+---
+
+
+```{r, include = FALSE}
+# Libraries
+library(tidyverse)
+library(lubridate)
+library(scales)
+library(factoextra)
+library(raster)
+library(tmap)
+library(png)
+library(gridExtra)
+library(dendextend)
+library(DescTools)
+library(imageryML)
+library(plotly)
+library(ggmap)
+library(rerddap)
+library(patchwork)
+
+theme_set(theme_light())
+
+
+# Data Preprocessing
+df_raw <- read_csv("/Users/howardbaek/Documents/insidethetv/content/post/2021-09-10-automatic-detection-of-upwelling/erddap_1982-01-01_2021-06-29_lat_40.625_50.625_lon_229.875_236.625.csv")
+
+# Process data
+df_processed <- df_raw %>% 
+  # Get rid of miscellaneous zlev in first row
+  slice(-1) %>% 
+  # zlev is a column of zeroes, so get rid of that
+  dplyr::select(-zlev) %>% 
+  # Convert into date
+  mutate(time = lubridate::ymd_hms(time)) %>% 
+  # Set column names
+  rename(date = time,
+         lat = latitude,
+         lon = longitude) %>% 
+  # Convert date column to Date type
+  mutate(date = as.Date(date),
+         lat = as.numeric(lat),
+         lon = as.numeric(lon),
+         sst = as.numeric(sst))
+
+# mask out Puget Sound, Strait of Juan de Fuca and Georgia Strait
+masks <- list(c(235.4488, 236.884, 47.87651, 50.13138),
+              c(232.2913, 233.8987, 50.28689, 51.60871),
+              c(234.4154, 235.9654, 49.04283, 50.09251))
+
+for (m1 in masks) {
+  # index of Puget Sound, Strait of Juan de Fuca or Georgia Strait
+  mask_loc <- df_processed$lat <= m1[4] & df_processed$lat >= m1[3] &
+    df_processed$lon <= m1[2] & df_processed$lon >= m1[1]
+  # Change to NA
+  df_processed$sst[mask_loc] <- NA
+}
+
+
+df_processed_date <- df_processed %>% 
+  mutate(lon = lon - 360)
+
+# Automatic Detection Method
+# Find SST values next to land (sst_coast_X) and check if upwelling
+is_upwelling <- df_processed_date %>% 
+  group_by(date, lat) %>% 
+  # 1 longitude tick away from land
+  mutate(sst_coast_1 = last(na.omit(sst)),
+         # 8 longitude ticks away from land (2 degrees in longitude)
+         sst_coast_2 = nth(na.omit(sst), -9),
+         # 12 longitude ticks away from land (3 degrees in longitude)
+         sst_coast_3 = nth(na.omit(sst), -13)) %>% 
+  ungroup() %>% 
+  group_by(date, lat) %>% 
+  # Find difference between pixels
+  # Threshold: 2.5
+  summarize(is_upwelling_1_2 = sst_coast_2 - sst_coast_1 > 2,
+            is_upwelling_1_3 = sst_coast_3 - sst_coast_1 > 2) %>% 
+  ungroup() %>% 
+  group_by(date, lat) %>% 
+  # Check if any upwelling in each latitude
+  # first() because I want to return one row for each lat
+  summarise(is_upwelling_total = first(is_upwelling_1_2 | is_upwelling_1_3)) %>% 
+  ungroup()
+
+
+final_df <- df_processed_date %>% 
+  left_join(is_upwelling, by = c("date", "lat")) %>%
+  ungroup() %>% 
+  # last_lon: longitude off coast
+  mutate(year = year(date),
+         month = month(date),
+         day = day(date)) %>% 
+  # Filter out 2021
+  filter(year < 2021)
+
+
+# Don't need to na.rm = TRUE because you want to preserve the land
+summarise_by_month <- function(tbl) {
+  
+  tbl %>%
+    group_by(month, lat, lon) %>% 
+    summarise(upwelling_prop = mean(is_upwelling_total), .groups = "drop")
+}
+
+
+# Don't need to na.rm = TRUE because you want to preserve the land
+summarise_by_year <- function(tbl) {
+  
+  tbl %>%
+    group_by(year, lat, lon) %>% 
+    summarise(upwelling_prop = mean(is_upwelling_total), .groups = "drop")
+  
+}
+
+# Don't need to na.rm = TRUE because you want to preserve the land
+summarise_by_decade <- function(tbl) {
+  
+  tbl %>%
+    mutate(decade = (year %/% 10) * 10) %>% 
+    group_by(decade, lat, lon) %>% 
+    summarise(upwelling_prop = mean(is_upwelling_total), .groups = "drop")
+  
+}
+
+# By Year
+final_df_year <- final_df %>%
+  summarise_by_year()
+
+
+# By Month
+final_df_processed <- final_df %>%
+  summarise_by_month()
+
+final_df_processed_heatmap <- final_df_processed %>% 
+  distinct(month, lat, upwelling_prop) %>% 
+  filter(lat < 50)
+
+
+
+# By Decade
+final_df_decade <- final_df %>%
+  summarise_by_decade()
+
+final_df_decade_heatmap <- final_df_decade %>% 
+  distinct(decade, lat, upwelling_prop) %>% 
+  # Filter out 2020 because not enough data
+  # Filter out 50 degree latitude because NA
+  filter(decade < 2020,
+         lat < 50)
+
+# Proportion of Days Upwelling
+prop_days_upwelling <- final_df %>% 
+  # Get distinct values of is_upwelling_total for each day
+  distinct(year, month, day, lat, is_upwelling_total) %>% 
+  group_by(year, month) %>% 
+  summarise(upwelling_prop = mean(is_upwelling_total, na.rm = TRUE), .groups = "drop")
+
+
+# Data Preprocessing for "Changes in Upwelling Phenology and Duration" Heatmaps
+final_df_upwelling_day <- final_df %>% 
+  filter(is_upwelling_total) %>% 
+  distinct(year, month, day, lat) %>%
+  # filter for upwelling months: June to Oct
+  filter(month %in% c(6:10)) %>% 
+  group_by(year, lat) %>% 
+  summarize(first_month = first(month),
+            first_day = first(day),
+            last_month = last(month),
+            last_day = last(day), 
+            .groups = "drop") %>% 
+  mutate(first_month_day = paste0(year, "-0", first_month, "-", first_day),
+         first_day_of_year = yday(first_month_day),
+         last_month_day = paste0(year, "-", last_month, "-", last_day),
+         last_day_of_year = yday(last_month_day))
+```
+
+## Introduction
+
+The National Oceanic and Atmospheric Administration ([NOAA](https://www.noaa.gov/)) defines upwelling as "a process in which deep, cold water rises toward the surface". It is initiated by wind blowing parallel to the coastline and moving warm water offshore, perpendicular to its direction. As surface water moves offshore, deeper, colder, and nutrient rich water rises up from deep sea level and replaces the warm water. "The upward movement of this deep, colder water is called upwelling" ([NOAA Ocean Explorer](https://oceanexplorer.noaa.gov/explorations/02quest/background/upwelling/upwelling.html)). 
+
+
+![](images/upwelling-diagram.jpeg)
+
+_Figure 1: Illustration of Upwelling. As surface winds blow towards the equator, they push warm coastal water away from the coast, which brings in deeper, colder, nutrient rich water from beneath the surface to replace the warm water._
+
+
+Upwelling brings nutrient rich water to the surface and supplies nutrition necessary for biological productivity. "Coastal upwelling ecosystems like the U.S. west coast are some of the most productive ecosystems in the world and support many of the world's most important fisheries. Although coastal upwelling regions account for only one percent of the ocean surface, they contribute roughly 50 percent of the world's fisheries landings" (NOAA Ocean Explorer).
+
+Literature on upwelling highlight changes in upwelling patterns. @bograd_phenology_2009 discovered "a trend towards a later and shorter upwelling season in the northern CCLME (California Current large marine ecosystem)". They also assert that there is "significant interannual variability in upwelling characteristics". The spring upwelling began later, resulting in a shorter upwelling season. Studying upwelling is useful for "resource managers tasked with assessing future changes in commercially important fish and protected species populations". 
+
+@xiu_future_2018 looked at the effect of global warming on coastal upwelling systems. They state, "global warming will enhance land–sea temperature gradients that in turn will increase upwelling favorable winds (i.e., the Bakun hypothesis)". Experts predict "increased upwelling intensity and duration at higher latitudes". This will affect global fish supply as change in upwelling is a driving factor of change in marine ecosystems. 
+
+<br>
+
+## Purpose
+
+We introduce a simple, but highly effective algorithm for detecting upwelling: an automatic detection method using satellite image data from NOAA. This method identifies the upwelling hotspots, months of strong upwelling, and the duration of upwelling. This will allow marine scientists and researchers to prepare for the effect of global warming on upwelling systems.
+
+<br>
+
+## Data
+
+The dataset, [Daily Optimum Interpolation (OI) SST](https://www.ncdc.noaa.gov/oisst), comes from NOAA's data server,  [ERDDAP](https://coastwatch.pfeg.noaa.gov/erddap/griddap/ncdcOisst21Agg.graph?sst%5B(2019-01-01T12:00:00Z)%5D%5B(0.0)%5D%5B(2.75):(86.25)%5D%5B(192.25):(275.75)%5D&.draw=surface&.vars=longitude%7Clatitude%7Csst&.colorBar=%7C%7C%7C16%7C32%7C&.bgColor=0xffccccff). It contains four columns: time, latitude, longitude, and SST (sea surface temperature). SST is defined as the water temperature close to the ocean's surface. 
+
+
+![](images/area-of-interest.png){width=400px height=600px}
+
+_Figure 2: NOAA satellite image showing sea surface temperature (SST) in Celsius off the coast of Vancouver Island and Washington. Red is high temperature (~18&deg;C), green is medium temperature (~15&deg;C) and blue/purple is low temperature (~13&deg;C)_
+
+
+As seen in Figure 2, we chose to focus on latitudes 42.625&deg;N to 52.125&deg;N and longitudes 229.875&deg; to 236.625&deg; because this area avoids the Alaska current to the north and the California current to the south. Also, the east boundary crops out land, which will save memory. This area corresponds to the coast of Vancouver Island (British Columbia) and Washington. 
+
+<br>
+
+## Automatic Detection Method
+
+
+```{r, include = FALSE}
+# Raw data (last 10 years)
+df_raw_pilot <- read_csv("/Users/howardbaek/Documents/insidethetv/content/post/2021-09-10-automatic-detection-of-upwelling/pilot_data.csv")
+
+# Processed data
+df_processed_pilot <- df_raw_pilot %>% 
+  # Get rid of miscellaneous zlev in first row
+  slice(-1) %>% 
+  # zlev is a column of zeroes, so get rid of that
+  dplyr::select(-zlev) %>% 
+  # Convert into date
+  mutate(time = ymd_hms(time)) %>% 
+  # Set column names
+  rename(date = time,
+         lat = latitude,
+         lon = longitude) %>% 
+  # Convert date column to Date type
+  mutate(date = as.Date(date),
+         lat = as.numeric(lat),
+         lon = as.numeric(lon),
+         sst = as.numeric(sst))
+
+# mask out Puget Sound, Strait of Juan de Fuca and Georgia Strait
+masks <- list(c(235.4488, 236.884, 47.87651, 50.13138),
+              c(232.2913, 233.8987, 50.28689, 51.60871),
+              c(234.4154, 235.9654, 49.04283, 50.09251))
+
+for (m1 in masks) {
+  # index of Puget Sound, Strait of Juan de Fuca or Georgia Strait
+  mask_loc <- df_processed_pilot$lat <= m1[4] & df_processed_pilot$lat >= m1[3] &
+    df_processed_pilot$lon <= m1[2] & df_processed_pilot$lon >= m1[1]
+  # Change to NA
+  df_processed_pilot$sst[mask_loc] <- NA
+}
+
+# Create sample data (2010-01-01)
+df_processed_date_pilot <- df_processed_pilot %>% 
+  filter(date == "2016-08-01") %>% 
+  mutate(lon = lon - 360)
+
+# Automatic Detection Method
+# Find SST values next to land (sst_coast_X) and check if upwelling
+is_upwelling_pilot <- df_processed_date_pilot %>% 
+  group_by(lat) %>% 
+  # 1 longitude tick away from land
+  mutate(sst_coast_1 = last(na.omit(sst)),
+         # 8 longitude ticks away from land (2 degrees in longitude)
+         sst_coast_2 = nth(na.omit(sst), -9),
+         # 12 longitude ticks away from land (3 degrees in longitude)
+         sst_coast_3 = nth(na.omit(sst), -13)) %>% 
+  # Find difference between pixels
+  # Threshold: 2
+  summarize(is_upwelling_1_2 = sst_coast_2 - sst_coast_1 > 2,
+            is_upwelling_1_3 = sst_coast_3 - sst_coast_1 > 2) %>% 
+  ungroup() %>% 
+  group_by(lat) %>% 
+  # Check if any upwelling in each latitude
+  # first() because I want to return one row for each lat
+  summarise(is_upwelling_total = first(is_upwelling_1_2 | is_upwelling_1_3)) %>% 
+  ungroup()
+
+
+final_df_pilot <- df_processed_date_pilot %>% 
+  left_join(is_upwelling_pilot) %>%
+  ungroup() %>% 
+  group_by(lat) %>% 
+  # Find  (coast) longitude corresponding to row preceding last Na/NaN value in SST
+  mutate(last_lon = across(sst, ~ tail(lon[!is.na(.)], 1))) %>% 
+  ungroup() %>% 
+  # last_lon: longitude off coast
+  mutate(last_lon = last_lon$sst,
+         # For blue dots
+         last_lon_minus_two = last_lon - 2,
+         last_lon_minus_three = last_lon - 3)
+
+# Filter out for upwelling locations
+final_df_upwelling_pilot <- final_df_pilot %>% 
+  filter(is_upwelling_total == 1)
+
+# Filter out red dots that go off map
+final_df_upwelling_pilot <- final_df_upwelling_pilot %>% 
+  filter(lat > min(final_df_upwelling_pilot$lat))
+
+# Filter out for sea only (take out land)
+final_df_sea <- final_df_pilot %>% filter(!is.na(sst))
+
+# Filter out blue dots that are off the map
+# i.e. Only keep blue dots where both last_lon_minus_two
+# and last_lon_minus_three are on the map
+final_df_upwelling_blue <- final_df_upwelling_pilot %>% 
+  filter(last_lon_minus_two > min(final_df_upwelling_pilot$lon)) %>% 
+  filter(last_lon_minus_three > min(final_df_upwelling_pilot$lon))
+
+# Give coordinates for map
+# Expand left coordinates a bit to show blue dots at the top
+bbox <- c(left = -130.325, bottom = 42.625, right = -122.575, top = 52.125)
+# Get stamen map
+ocean_map <- get_stamenmap(bbox, zoom = 8, maptype = "terrain-background")
+```
+
+
+
+
+@gidhagen_coastal_1987 first uses an automatic method to define upwelling: "Upwelling was proved if an _in situ_ measurement showed an abnormal temperature drop of at least 2°C compared to earlier and surrounding measurements". Using this method, he found that September is a month of strong upwelling in the Swedish coastline of the Baltic Sea. "The increased rate of upwelling in September is not due to a higher number of upwellings, but rather to a longer duration". Overall, he found "there is a strong year-to-year variation in the rate of upwellings". 
+
+@lehmann_statistical_2012 discusses the automatic detection method: "Upwelling was detected by calculating the temperature difference for each individual pixel from the zonal mean temperature, for every pixel line." The authors tested two temperature thresholds (2&deg;C and 3.5&deg;C), both of which yielded "erroneous upwelling areas detected far offshore". Thus, they registered upwelling if it occurred within 28 km of the coast.
+
+Drawing inspiration from past work, we created a custom automatic detection method to algorithmically determine when and where upwelling occurs. The algorithm looks at each latitude and finds the SST of the coastal water (water closest to land) and the SST of water 2 and 3 degrees away from land (SST coast 2 and SST coast 3). Then, it computes two differences: the difference in SST between the coastal water and SST coast 2 and the difference in SST between the coastal water and SST coast 3. It checks if either of these two differences exceeds a threshold of 2.5&deg;C. If it does, we indicate upwelling at the specific latitude. If not, we indicate non-upwelling.
+
+
+```{r fig-3, echo = FALSE}
+# Plot
+ggmap(ocean_map, maprange = FALSE) +
+  # Red dots
+  geom_point(data = final_df_upwelling_pilot,
+             mapping = aes(x = last_lon, y = lat),
+             size = 1.5,
+             shape = 8,
+             color = "red") +
+  # Blue dots
+  geom_point(data = final_df_upwelling_pilot,
+             mapping = aes(x = last_lon_minus_two, y = lat),
+             size = 1.5,
+             shape = 8,
+             color = "blue") +
+  geom_point(data = final_df_upwelling_blue,
+             mapping = aes(x = last_lon_minus_three, y = lat),
+             size = 1.5,
+             shape = 8,
+             color = "blue") + 
+  scale_fill_gradient2(name = "Sea Surface Temperature (\u00B0C)",
+                       midpoint = mean(final_df$sst, na.rm = TRUE),
+                       low = "blue",
+                       mid = "white",
+                       high = "red",
+                       na.value = "grey20") +
+  labs(x = NULL,
+       y = NULL,
+       title = "Automatic Detection of Upwelling",
+       subtitle = "Red dots denote location of upwelling \nBlue dots denote location of comparison to red dots") +
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        panel.border = element_blank(),
+        legend.position = "bottom",
+        legend.background=element_blank())
+```
+
+
+_Figure 3: Stamen map showing upwelling locations off the coast of Vancouver Island and Washington. Red dots are placed at latitudes where we detected upwelling. Blue dots are placed 2 and 3 degrees away from the red dots._
+
+
+As seen in Figure 3, the automatic detection method accurately portrays the location of upwelling along the coast. It corresponds well with visually looking at the SST and finding locations where the color of the SST on the coast is blue and the color of the SST on offshore waters is red. In a later section,  "Exploration of Upwelling Percentage", we will illustrate the changes in the timing and length of upwelling season from 1982 to 2020.
+
+<br>
+
+## Results 
+
+```{r, include=FALSE}
+# Data Prepreocessing for Upwelling Index
+
+
+first_df <- tabledap("erdUI426hr") %>% 
+  as_tibble() %>%  
+  dplyr::select(-station_id) %>%
+  # Convert date column to Date type
+  transmute(date = as.Date(time),
+            upwelling_index,
+            lat = as.numeric(latitude),
+            lon = as.numeric(longitude)) %>% 
+  group_by(date, lon, lat) %>% 
+  # Average 6 hour upwelling index to get daily index
+  summarise(upwelling_index_daily_avg = mean(upwelling_index), .groups = "drop")
+
+
+second_df <- tabledap("erdUI456hr") %>% 
+  as_tibble() %>%  
+  dplyr::select(-station_id) %>%
+  # Convert date column to Date type
+  transmute(date = as.Date(time),
+            upwelling_index,
+            lat = as.numeric(latitude),
+            lon = as.numeric(longitude)) %>% 
+  group_by(date, lon, lat) %>% 
+  # Average 6 hour upwelling index to get daily index
+  summarise(upwelling_index_daily_avg = mean(upwelling_index), .groups = "drop")
+
+
+third_df <- tabledap("erdUI486hr") %>% 
+  as_tibble() %>%  
+  dplyr::select(-station_id) %>% 
+  # Convert date column to Date type
+  transmute(date = as.Date(time),
+            upwelling_index,
+            lat = as.numeric(latitude),
+            lon = as.numeric(longitude)) %>% 
+  group_by(date, lon, lat) %>% 
+  # Average 6 hour upwelling index to get daily index
+  summarise(upwelling_index_daily_avg = mean(upwelling_index), .groups = "drop")
+
+
+ui_df <- first_df %>% 
+  rbind(second_df) %>% 
+  rbind(third_df) %>% 
+  mutate(upwelling_index_daily_avg = round(upwelling_index_daily_avg, 0))
+
+
+
+
+
+# Create df for three different latitudes
+df_processed_424548_125 <- df_processed %>% 
+  filter(lat %in% c(42.125, 45.125, 48.125)) %>% 
+  mutate(lon = lon - 360) 
+
+# Automatic Detection Method
+# Find SST values next to land (sst_coast_X) and check if upwelling
+is_upwelling_424548_125 <- df_processed_424548_125 %>% 
+  group_by(date, lat) %>% 
+  # 1 longitude tick away from land
+  mutate(sst_coast_1 = last(na.omit(sst)),
+         # 8 longitude ticks away from land (2 degrees in longitude)
+         sst_coast_2 = nth(na.omit(sst), -9),
+         # 12 longitude ticks away from land (3 degrees in longitude)
+         sst_coast_3 = nth(na.omit(sst), -13)) %>% 
+  # Find difference between pixels
+  # Threshold: 0.15
+  summarize(is_upwelling_1_2 = sst_coast_2 - sst_coast_1 > 2,
+            is_upwelling_1_3 = sst_coast_3 - sst_coast_1 > 2) %>% 
+  ungroup() %>% 
+  group_by(date, lat) %>% 
+  # Check if any upwelling in each latitude
+  # first() because I want to return one row for each lat
+  summarise(is_upwelling_total = first(is_upwelling_1_2 | is_upwelling_1_3)) %>% 
+  ungroup() %>% 
+  # Round down so that its easier to merge later on with ui
+  mutate(lat = round(lat, 0))
+
+
+
+ui_42 <- tabledap("erdUI426hr") %>% 
+  as_tibble() %>% 
+  dplyr::select(-station_id) %>%
+  # Convert date column to Date type
+  transmute(date = as.Date(time),
+            upwelling_index,
+            lat = as.numeric(latitude),
+            lon = as.numeric(longitude)) %>% 
+  filter(date >= "1982-01-01") %>% 
+  group_by(date, lon, lat) %>% 
+  # Average 6 hour upwelling index to get daily index
+  summarise(upwelling_index_daily_avg = mean(upwelling_index), .groups = "drop")
+
+ui_45 <- tabledap("erdUI456hr") %>% 
+  as_tibble() %>% 
+  dplyr::select(-station_id) %>%
+  # Convert date column to Date type
+  transmute(date = as.Date(time),
+            upwelling_index,
+            lat = as.numeric(latitude),
+            lon = as.numeric(longitude)) %>% 
+  filter(date >= "1982-01-01") %>% 
+  group_by(date, lon, lat) %>% 
+  # Average 6 hour upwelling index to get daily index
+  summarise(upwelling_index_daily_avg = mean(upwelling_index), .groups = "drop")
+
+ui_48 <- tabledap("erdUI486hr") %>% 
+  as_tibble() %>% 
+  dplyr::select(-station_id) %>%
+  # Convert date column to Date type
+  transmute(date = as.Date(time),
+            upwelling_index,
+            lat = as.numeric(latitude),
+            lon = as.numeric(longitude)) %>% 
+  filter(date >= "1982-01-01") %>% 
+  group_by(date, lon, lat) %>% 
+  # Average 6 hour upwelling index to get daily index
+  summarise(upwelling_index_daily_avg = mean(upwelling_index), .groups = "drop")
+
+ui_424548 <- ui_42 %>% 
+  rbind(ui_45) %>% 
+  rbind(ui_48)
+
+final_df_424548_125 <- ui_424548 %>% 
+  inner_join(is_upwelling_424548_125, by = c("date", "lat")) %>% 
+  mutate(is_upwelling_total = as.numeric(is_upwelling_total))
+
+```
+
+
+### Relationship of the Automatic Detection Method with the Ekman Upwelling Index
+
+The automatic detection method gives us an indicator of upwelling at a certain latitude. This allows us to perform logistic regression to examine the relationship between a predictor and the upwelling indicator.  
+
+We merged our dataset with data on the daily averages of Ekman upwelling index data at three different latitudes: 42&deg;N, 45&deg;N, and 48&deg;N. This data comes from the [Environmental Research Division at NOAA Fisheries - Southwest Fisheries Science Center.](https://oceanview.pfeg.noaa.gov/products/upwelling/intro)  The Ekman upwelling index is an index of the strength of upwelling along the coast and is calculated using wind dynamics. Positive values indicate upwelling and negative values non-upwelling. 
+
+```{r fig-4, echo = FALSE, message=FALSE}
+ui_df %>% 
+  mutate(year = year(date),
+         month = month(date),
+         day = day(date)) %>%
+  group_by(year, month, lon, lat) %>% 
+  summarise(monthly_average_upwelling_index = mean(upwelling_index_daily_avg, na.rm = TRUE), .groups = "drop") %>% 
+  mutate(monthly_date = make_date(year, month, 1)) %>%
+  mutate(is_upwelling_season = if_else(month %in% c(6, 7, 8, 9, 10), 
+                                       "Upwelling Months (June-Oct)",
+                                       "Non-Upwelling Months (Nov-May)")) %>%
+  mutate(lat = as.character(lat),
+         lat = case_when(
+           lat == "42"~ "42\u00b0N",
+           lat == "45"~ "45\u00b0N",
+           lat == "48"~ "48\u00b0N")) %>% 
+  ggplot(aes(monthly_date, monthly_average_upwelling_index)) +
+  geom_line(aes(color = is_upwelling_season), show.legend = FALSE) +
+  geom_smooth(aes(color = is_upwelling_season), show.legend = FALSE) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  scale_x_date(date_breaks = "7 years",
+               date_labels = "%Y") +
+  facet_grid(fct_relevel(lat, "48°N", "45°N", "42°N") ~ is_upwelling_season) +
+  labs(x = NULL,
+       y = "Monthly Averages of Upwelling Index",
+       title = "Monthly Averages of Upwelling Index from 1967-01-01 to 2021-05-31",
+       subtitle = "Facetted by Upwelling Months and Latitude")
+```
+
+
+_Figure 4 : Line plot of monthly averages of Ekman upwelling index on the y-axis and year on the x-axis facetted by latitude (42&deg;N, 45&deg;N and 48&deg;N) and upwelling months (June ~ Oct / Nov ~ May)._
+
+Above is a line plot of the monthly averages of Ekman upwelling index facetted by upwelling months and latitude. Upwelling months are from June to October, months known to have strong upwelling patterns. Non-upwelling months are from November to May. We observe the trend line in the non-upwelling months to be well below zero and the trend line in the upwelling months to be well above zero. This demonstrates that the upwelling index is appropriate for detecting upwelling. Below, we further examine the relationship between the upwelling labels from the automatic detection method and the upwelling index with logistic regression. 
+
+
+```{r fig-5, echo = FALSE, message=FALSE}
+final_df_424548_125 %>% 
+  mutate(lat = paste0(lat, "\u00B0N"),
+         upw_yes = ifelse(is_upwelling_total == 1,
+                          upwelling_index_daily_avg,
+                          NA),
+         upw_no = ifelse(is_upwelling_total == 0,
+                         upwelling_index_daily_avg,
+                         NA)) %>% 
+  # Filter out outlier indexes that make the plot look small
+  filter(between(upwelling_index_daily_avg, -500, 500)) %>% 
+  ggplot(aes(upwelling_index_daily_avg, is_upwelling_total)) +
+  geom_histogram(aes(x = upw_no, y = stat(count)/43214), bins = 35, na.rm = TRUE, fill = "midnightblue") +
+  geom_histogram(aes(x = upw_yes, y = -1*stat(count/43214)), bins = 30, na.rm = TRUE, position = position_nudge(y = 1), fill = "midnightblue") +
+  stat_smooth(method="glm", se=FALSE, fullrange=TRUE,
+              method.args = list(family=binomial)) +
+  geom_vline(xintercept = 0,
+             linetype = "dashed",
+             color = "midnightblue") +
+  facet_wrap(~fct_relevel(lat, "48°N", "45°N", "42°N"), 
+             nrow = 3) +
+  scale_y_continuous(breaks = c(0, 1)) +
+  labs(x = "Daily Average of Ekman Upwelling Index",
+       y = "Upwelling (0/1)",
+       title = "Logistic Curve (with histogram) of Upwelling (0/1) vs Ekman Upwelling Index",
+       subtitle = "Facetted by Latitude")
+```
+
+
+
+_Figure 5: Logistic curve of upwelling indicator variable on the y-axis and daily average of Ekman upwelling index on the x-axis at three latitudes: 42&deg;N, 45&deg;N, and 48&deg;N. Also shown is histogram of the distribution of the upwelling index at upwelling (1) and non-upwelling (0)._
+
+Above is a logistic curve drawn on a plot of the upwelling indicator variable and daily average of Ekman upwelling index. As we go from 42&deg;N to 45&deg;N and from 45&deg;N to 48&deg;N, there seem to be less and less positive upwelling indexes at `y = 1`. In other words, at higher latitudes, there is less of a correlation between Ekman upwelling index and the automatic detection method. When we ran a logistic regression on two predictors, Ekman upwelling index and latitude, we observed that daily average of upwelling index has a statistically significant, positive relationship with the binary variable of upwelling (0/1). 
+
+<br>
+
+
+### Exploration of Upwelling Percentage
+
+> Upwelling percentage: Proportion of days over relevant timeframe in a figure that are categorized as upwelling by our automatic detection method.
+
+
+
+
+
+```{r fig-6, echo = FALSE}
+final_df_decade_heatmap %>%
+  ggplot(aes(decade, lat, fill = upwelling_prop)) +
+  geom_tile() +
+  scale_x_continuous(name = NULL,
+                     breaks = c(1980, 1990, 2000, 2010),
+                     labels = c("1980s", "1990s", "2000s", "2010s"),
+                     expand = c(0, 0)) + 
+  scale_y_continuous(name = NULL, expand = c(0, 0),
+                     labels = label_number(suffix ="\u00b0")) +
+  scale_fill_gradientn(name = "Upwelling Percentage",
+                       colours = rev(rainbow(4)),
+                       labels = percent,
+                       breaks = c(0.15, 0.35, 0.5)
+  ) +
+  theme(legend.position = "bottom") +
+  ggtitle("Upwelling % by Latitude for each Decade",
+          subtitle = "1982 ~ 2020")
+
+```
+
+
+_Figure 6: Heatmap of upwelling percentage over four decades. Red means high upwelling percentage (~50%) , blue means low upwelling percentage (~15%), and green is the average upwelling percentage (~35%). The 2020s has been omitted for lack of data._
+
+Overall, low latitudes have higher upwelling percentage than high latitudes. Over the four decades, upwelling percentage is highest (~50%) at 40.0&deg;N ~ 42.5&deg;N. Then, it decreases to around 35% at 42.5&deg;N ~ 45.0&deg;N. Above this latitude, upwelling percentage decreases to 15% at 45.0&deg;N ~ 50.0&deg;N. Notably, in the 1980s and 2010s, upwelling percentage around 35% was observed at the lower latitudes (40&deg;N ~ 42.5&deg;N) and higher latitudes (47.5&deg;N ~ 50.0&deg;N).
+
+
+
+```{r fig-7, echo = FALSE}
+prop_days_upwelling %>% 
+  ggplot(aes(year, month, fill = upwelling_prop)) +
+  geom_tile() +
+  scale_x_continuous(name = NULL,
+                     breaks = c(1982, 1985, 1990, 1995,
+                                2000, 2005, 2010, 2015,
+                                2020),
+                     expand = c(0, 0)) + 
+  scale_y_continuous(name = NULL, expand = c(0, 0),
+                     breaks = 1:12,
+                     labels = month.abb) +
+  scale_fill_gradientn(name = "Upwelling Percentage",
+                       colours = rev(rainbow(4)),
+                       labels = percent,
+                       breaks = c(0, 0.5, 0.95)) +
+  theme(legend.position = "bottom") +
+  ggtitle("Upwelling % by Month for each Year",
+          subtitle = "1982 ~ 2020")
+
+```
+
+_Figure 7: Heatmap of the proportion of upwelling days in each month from 1982 to 2020. Red means high upwelling percentage (~95%) , blue means low upwelling percentage (~0%), and green is the average upwelling percentage (~50%)._
+
+This plot illustrates a a fairly consistent pattern of high upwelling percentage from June to October. There is extremely high upwelling percentage (~95%) in August, September, and October. On the other hand, there is low upwelling percentage (~0%) from November to May. This shows the upwelling months (upwelling percentage higher than 25%), to be from June to October and the non-upwelling months (upwelling percentage lower than 25%) from November to May. 
+
+
+
+
+```{r fig-8, echo = FALSE}
+final_df %>% 
+  # Get distinct values of is_upwelling_total for each day
+  distinct(year, month, day, lat, is_upwelling_total) %>% 
+  filter(lat < 50) %>% 
+  mutate(lat_binned = cut(lat, breaks = c(40, 43.5, 46.125, 47.625, 50),
+                          labels = c("[40\u00b0, 43.5\u00b0]",
+                                     "[43.5\u00b0, 46.125\u00b0]",
+                                     "[46.125\u00b0, 47.625\u00b0]",
+                                     "[47.625\u00b0, 50\u00b0]"))) %>%
+  group_by(year, month, lat_binned) %>% 
+  summarise(upwelling_prop = mean(is_upwelling_total, na.rm = TRUE), .groups = "drop") %>% 
+  ggplot(aes(year, month, fill = upwelling_prop)) +
+  geom_tile() +
+  facet_wrap(~lat_binned) +
+  scale_x_continuous(name = NULL,
+                     breaks = c(1982, 1985, 1990, 1995,
+                                2000, 2005, 2010, 2015,
+                                2020),
+                     expand = c(0, 0)) + 
+  scale_y_continuous(name = NULL, expand = c(0, 0),
+                     breaks = c(1,3, 6, 9, 12),
+                     labels = month.abb[c(1,3, 6, 9, 12)]) +
+  scale_fill_gradientn(colours = rev(rainbow(4)),
+                       name = "Upwelling Percentage",
+                       labels = percent,
+                       breaks = c(0, 0.5, 1)) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 1, hjust = 0),
+        legend.position = "bottom") +
+  ggtitle("Upwelling % Facetted by Latitude Bins",
+          subtitle = "1982 ~ 2020")
+```
+
+
+_Figure 8: Heatmap of upwelling percentage facetted by latitude bins from 1982 to 2020. Red means high upwelling percentage (~95%) , blue means low upwelling percentage (~0%), and green is the average upwelling percentage (~50%). This plot segments the previous plot into four latitude bins: [40&deg;N, 43.5&deg;N], [43.5&deg;N, 46.126&deg;N], [46.125&deg;N, 47.625&deg;N], and [47.625&deg;N, 50&deg;N]._
+
+
+Overall, there is extremely high upwelling percentages (~95%) during the upwelling months at the 40&deg;N ~ 43.5&deg;N latitude bin and lower upwelling percentages as latitude increases. In the northern latitudes, there are some years with high upwelling percentage, but they are not as common as in the southern latitudes. 
+
+
+
+```{r fig-9, echo = FALSE}
+final_df_processed_heatmap %>%
+  ggplot(aes(month, lat, fill = upwelling_prop)) +
+  geom_tile() +
+  scale_x_continuous(name = NULL,
+                     breaks = c(1:12),
+                     labels = month.abb,
+                     expand = c(0, 0)) + 
+  scale_y_continuous(name = NULL, expand = c(0, 0),
+                     labels = label_number(suffix ="\u00b0")) +
+  scale_fill_gradientn(colours = rev(rainbow(4)),
+                       name = "Upwelling Percentage",
+                       labels = percent,
+                       breaks = c(0, 0.5, 0.95)) +
+  theme(legend.position = "bottom") +
+  ggtitle("Upwelling % by Latitude for each Month",
+          subtitle = "1982 ~ 2020")
+```
+
+
+_Figure 9: Heatmap of upwelling percentage by latitude and month from 1982 to 2020. Red means high upwelling percentage (~95%) , blue means low upwelling percentage (~0%), and green is the average upwelling percentage (~50%)._
+
+This plot confirms the above findings of a consistent upwelling pattern from June to October and higher upwelling percentages in the lower latitudes (40&deg;N ~ 45&deg;N). Interestingly, there is a glimmer of high upwelling percentage around 48.0&deg;N from August to September. This latitude is same as the latitude where in the 1980s and 2010s, upwelling percentage was observed to be around 35%.
+
+<br>
+
+### Changes in Upwelling Phenology and Duration
+
+```{r fig-10, echo=FALSE}
+final_df_upwelling_day %>% 
+  ggplot(aes(year, lat)) +
+  geom_tile(aes(fill = first_day_of_year)) +
+  scale_x_continuous(name = NULL,
+                     breaks = c(seq(from = 1982, to = 2020, by = 5), 2020),
+                     expand = c(0, 0)) + 
+  scale_y_continuous(name = NULL, 
+                     expand = c(0, 0),
+                     labels = label_number(suffix ="\u00b0")) +
+  scale_fill_gradientn(colours = rev(rainbow(3)),
+                       name = "First day of upwelling",
+                       breaks = c(180, 210, 240),
+                       labels = c("July 1st", "Aug 1st", "Sept 1st")) +
+  theme(legend.position = "bottom") +
+  ggtitle("First Day of Upwelling by Latitude: 1982 ~ 2020",
+          subtitle = "Filtered for June~Oct (Upwelling Months)")
+```
+
+
+
+_Figure 10: Heatmap showing the first day of upwelling off the coast of Vancouver Island and Washington. Red squares signify later upwelling days (late September) and blue squares earlier days (June). White squares indicate missing values. Heatmap showing the last day of upwelling is placed in the Appendix since it shows no clear pattern._
+
+
+The plot above shows that the first day suggesting a coastal upwelling process by our automatic detection method was from June to October. Overall, upwelling started later for the northern latitudes (45.0&deg;N ~ 50.0&deg;N) than the southern latitudes (40.0&deg;N ~ 45.0&deg;N). There is a band of latitudes around the late 1990s and late 2000s when the first day of upwelling was late September. Also, around 48.0&deg;N, the first day of upwelling is much earlier (June) than the surrounding latitudes, where the first day of upwelling was in August.
+
+```{r fig-11, echo = FALSE}
+final_df_upwelling_day %>% 
+  mutate(duration_day_of_year = last_day_of_year - first_day_of_year) %>% 
+  ggplot(aes(year, lat)) +
+  geom_tile(aes(fill = duration_day_of_year)) +
+  scale_x_continuous(name = NULL,
+                     breaks = c(seq(from = 1982, to = 2020, by = 5), 2020),
+                     expand = c(0, 0)) + 
+  scale_y_continuous(name = NULL, 
+                     expand = c(0, 0),
+                     labels = label_number(suffix ="\u00b0N")) +
+  scale_fill_gradientn(colours = rainbow(4),
+                       name = "Duration of upwelling") +
+  theme(legend.position = "bottom") +
+  ggtitle("Duration (days) of Upwelling by Latitude: 1982 ~ 2020",
+          subtitle = "Filtered for June~Oct (Upwelling Months)")
+```
+
+
+_Figure 11: Heatmap showing the duration of upwelling off the coast of Vancouver Island and Washington. Red squares indicate short upwelling duration (~10 days) and blue squares long upwelling duration (~150 days). White squares indicate missing values._
+
+Overall, southern latitudes (40.0&deg;N ~ 45.0&deg;N) show longer duration of upwelling. This is natural since the previous plot showed that in the southern latitudes, upwelling started earlier than the northern latitudes. There are some northern latitudes with short duration of upwelling. Around 50.0&deg;N and 47.5&deg;N, the duration of upwelling is shorter than its surrounding latitudes. In 1997, a shorter duration of upwelling was observed at 45.0&deg;N ~ 47.5&deg;N than surrounding years. 
+
+
+<br>
+
+
+### Discussion
+
+Our automatic detection method mainly draws inspiration from @gidhagen_coastal_1987. Gidhagen determined a coastal upwelling process with "an abnormal temperature drop of at least 2°C compared to earlier and surrounding measurements". This revealed that in the Baltic Sea, the range of the temperature drop for upwelling events is 2-10°C and a typical drop is 4-5°C. Our method uses a threshold of 2.5°C, which is optimal for reducing noise. While Gidhagen compares the current coastal temperature in two dimensions, time and location, we only look at one dimension, comparing the coastal SST to the SST that are 2 and 3 degrees away. 
+
+Eleven years later, @naidu_time_1999 studied monsoonal upwelling along the west and east coasts of India using monthly mean local temperature anomaly (LTA). LTA  is defined as the diffference between coastal and mid-ocean sea surface temperatures (SST). Specifically, they calculate two LTAs, one on the west coast ($LTA_W$) and another on the east coast ($LTA_E$). 
+
+\begin{align}
+LTA_W &= T_{64}-T_{\text{west coast}} \text{(along the same latitude belt)} \\
+
+LTA_E &= T_{90}-T_{\text{east coast}} \text{(along the same latitude belt)}
+
+\end{align}
+
+In the Arabian Sea, they used "64&deg;E ($T_{64}$) for representing the mid-ocean conditions whereas for the Bay of Bengal we used the 90&deg;E ($T_{90}$) for the open ocean conditions". Positive LTA values indicate coastal upwelling process.
+
+
+Ten years later, @smitha_upwelling_2008 also used LTA as an upwelling index. 
+
+LTA is calculated as 
+
+
+\begin{align}
+
+LTA_{wc} &= T_{lon - 3}-T_{\text{lon}} \text{(along the south-west coast)} \\
+
+LTA_{kk} &= T_{lat - 3}-T_{\text{lat}} \text{(Off Kanyakumari)}
+
+\end{align}
+
+
+$T_{\text{lat}}$ and $T_{\text{lon}}$ refer to the coastal stations between 8.5&deg; - 14.5&deg; N and 76.5&deg; - 78.5&deg;E and $T_{lon - 3}$ and $T_{\text{lat} - 3}$ refer to SST 333 km from the coast. $LTA_{wc}$ and $LTA_{kk}$, respectively, represent local temperature along the south-west coast and the Kanyakumari coast. The positive LTA values suggest coastal upwelling process.
+
+Most recently, @holmes_improving_2021 used SST differential to study upwelling in the Southeast Arabian Sea, one of the world's important seasonal upwelling zones. For their SST data, they used the same source as this blogpost, the Daily Optimum Interpolation (OI), version 2.1 data set by the Group for High Resolution Sea Surface Temperature (GHRSST). "This data set uses Advanced Very High Resolution Radiometer (AVHRR) data, which provides accurate nearshore SST values, and interpolates to fill in gaps in the AVHRR data". Their upwelling index is "the SST differential between nearshore and 3° longitude offshore, based on @naidu_time_1999 and @smitha_upwelling_2008." This index is good for measuring "upwelling arising due to both remote-forcing and local wind stress."
+
+
+@hickey_oceanography_2003 reveals that "In general, the strength and duration of upwelling increases to the south in the PNW". They define strength of upwelling with wind velocity, whereas we look to upwelling percentage. Figure 8 and Figure 9 clearly confirm this finding as they illustrate upwelling percentage is much higher in the lower latitudes in the PNW, 40.0&deg;N ~ 45.0&deg;N, than the higher latitudes, 45.0&deg;N ~ 50.0&deg;N. In fact, Figure 6 shows that this has been the case over several decades since the 1980s. 
+
+Also, they mention that maximum upwelling happens in spring and summer. Our automatic detection method shows that the upwelling months (months with upwelling percentage > 25%) are from June to October. This means upwelling months start later in the summer and end later in the Fall than Hickey and Banas' assertion. 
+
+Finally, Hickey and Banas write, "the duration of coastal upwelling also decreases seasonally towards the north". Figure 11 illustrates this point, as it shows that duration of upwelling is around 150 days at 40.0&deg;N ~ 45.0&deg;N, and decreases to around 100 days for northern latitudes, 45.0&deg;N ~ 50.0&deg;N.
+
+@bograd_phenology_2009 develop a set of indexes to understand the coastal upwelling in the California Current large marine ecosystem (CCLME). They found that coastal upwelling gets "progressively shorter with northward latitude". In Table 1, they show that the mean duration of upwelling is 357 days at 33.0&deg;N, 320 days at 36&deg;N, 223 days at 42&deg;N, and 151 days at 48&deg;N. This finding agrees with our Figure 11, which shows northern latitudes with shorter duration of upwelling. One difference is Bograd et al only looked at data up to 2007, whereas our dataset looks up to 2020. 
+
+
+
+### Conclusion 
+
+Upwelling is the upward movement of deep, cold water caused by wind blowing parallel to the coastline. We designed a custom automatic detection method using SST differential to accurately identify when and where upwelling occurs. We discovered that monthly averages of Ekman upwelling index has a statistically significant relationship with the upwelling indicator. These indicators were determined by our automatic detection method. 
+
+Using these indicators, we calculated the upwelling percentage, the proportion of days over relevant timeframe in a figure that are categorized as upwelling by our automatic detection method. We discovered that southern latitudes (40&deg;N ~ 45&deg;N) had higher upwelling percentages than northern latitudes (45&deg;N ~ 50&deg;N). There was extremely high upwelling percentage, close to 50%, from 40&deg;N to 42.5&deg;N. Also, we found the upwelling months (upwelling percentage higher than 25%) to be from June to October and the non-upwelling months from November to May. High upwelling percentage (~95%) was observed from August to October. 
+
+We then looked at the changes in upwelling phenology and focused on the upwelling months. Upwelling started later for northern latitudes (45.0&deg;N to 50.0&deg;N) around August and September. In the southern latitudes, upwelling started around July 1st. Northern latitudes had shorter duration of upwelling than the southern latitudes.
+
+
+<br>
+
+### Appendix
+
+
+```{r, echo = FALSE, warning = FALSE, message=FALSE}
+final_df_decade %>%
+  # Filter out 2020 because not enough data
+  filter(decade < 2020) %>% 
+  mutate(decade = as.character(decade),
+         decade = case_when(
+           decade == "1980" ~ "1980s",
+           decade == "1990" ~ "1990s",
+           decade == "2000" ~ "2000s",
+           decade == "2010" ~ "2010s",
+           TRUE ~ decade
+         )) %>% 
+  ggplot(aes(lat, upwelling_prop)) +
+  geom_line(color = "midnightblue", 
+            size = 1.2,
+            show.legend = FALSE) +
+  geom_vline(xintercept = 42.5, lty = 2) +
+  geom_vline(xintercept = 48.4, lty = 2) +
+  facet_wrap(~decade) +
+  scale_x_continuous(breaks = c(42.5, 45, 48.4, 50),
+                     labels = scales::label_number(suffix ="\u00b0")) +
+  scale_y_continuous(labels = scales::percent) +
+  expand_limits(y = 0) +
+  theme(axis.text.x = element_text(angle = 60, vjust = 1, hjust=1)) +
+  labs(x = NULL,
+       y = "Upwelling Percentage",
+       title = "Upwelling Percentage by Latitude Facetted by Decade",
+       subtitle = "Dotted lines at Upwelling Hot Spots")
+
+```
+
+
+_Figure 12: Lineplots of upwelling percentage over four decades. The 2020s has been omitted for lack of data._
+
+
+```{r, echo = FALSE, warning = FALSE, message=FALSE}
+final_df_year %>%
+  ggplot(aes(lat, upwelling_prop)) +
+  geom_line(color = "midnightblue", 
+            size = 1.1,
+            show.legend = FALSE) +
+  geom_vline(xintercept = 42.5, lty = 2) +
+  geom_vline(xintercept = 48.4, lty = 2) +
+  facet_wrap(~year) +
+  scale_x_continuous(breaks = c(42.5, 45, 48.4, 50),
+                     labels = label_number(suffix ="\u00b0")) +
+  scale_y_continuous(labels = percent) +
+  expand_limits(y = 0) +
+  theme(axis.text.x = element_text(angle = 60, vjust = 1, hjust=1)) +
+  labs(x = NULL,
+       y = "Upwelling Percentage",
+       title = "Upwelling Percentage by Latitude: 1982-2020",
+       subtitle = "Dotted lines at Upwelling Hot Spots")
+```
+
+_Figure 13: Lineplots of upwelling percentage from 1982 to 2020._
+
+```{r, echo = FALSE, warning = FALSE, message=FALSE}
+final_df_month <- final_df %>%
+  summarise_by_month()
+
+final_df_month %>% 
+  mutate(month = factor(month.abb[month],levels=month.abb)) %>% 
+  ggplot(aes(lat, upwelling_prop)) +
+  geom_line(aes(color = month), 
+            size = 1.2,
+            show.legend = FALSE) +
+  geom_vline(xintercept = 42.5, lty = 2) +
+  geom_vline(xintercept = 48.4, lty = 2) +
+  facet_wrap(~month) +
+  scale_x_continuous(breaks = c(42.5, 45, 48.4, 50),
+                     labels = label_number(suffix ="\u00b0")) +
+  scale_y_continuous(labels = percent) +
+  expand_limits(y = 0) +
+  theme(axis.text.x = element_text(angle = -30, vjust = 1, hjust = 0)) +
+  labs(x = NULL,
+       y = "Upwelling Percentage",
+       title = "Upwelling Percentage by Latitude: 1982-2021",
+       subtitle = "Dotted lines at Upwelling Hot Spots")
+```
+
+
+_Figure 14: Lineplots of upwelling percentage of each month from 1982 to 2020._
+
+```{r, echo = FALSE, message=FALSE}
+final_df_upwelling_day %>% 
+  ggplot(aes(year, lat)) +
+  geom_tile(aes(fill = last_day_of_year)) +
+  scale_x_continuous(name = NULL,
+                     breaks = c(seq(from = 1982, to = 2020, by = 5), 2020),
+                     expand = c(0, 0)) + 
+  scale_y_continuous(name = NULL, 
+                     expand = c(0, 0),
+                     labels = label_number(suffix ="\u00b0N")) +
+  scale_fill_gradientn(colours=rainbow(4),
+                       name = "Last day of year",
+                       breaks = c(210, 240, 270, 300),
+                       labels = c("July 20th", "Aug 20th",
+                                  "Sept 20th", "Oct 20th")) +
+  theme(legend.position = "bottom") +
+  ggtitle("Last Day of Upwelling by Latitude: 1982 ~ 2020",
+          subtitle = "Filtered for June~Oct (Upwelling Months)")
+```
+
+
+_Figure 15: Heatmap showing the last day of upwelling off the coast of Vancouver Island and Washington. Red squares signify later upwelling days (late September) and blue squares earlier days (June). White squares indicate missing values._
+
+
+<br>
+
+### References
