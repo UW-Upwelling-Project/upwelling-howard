@@ -33,6 +33,10 @@ library(patchwork)
 theme_set(theme_light())
 ```
 
+<!-- everything below is sandboxing -->
+
+<!--
+
 ## Notes from paper
 
 Upwelling is defined by a certain temperature drop compared to the surrounding water temperature close to the coast. Such strong upwelling events could contribute to replenishing the euphotic zone with the nutritional components necessary for biological productivity.
@@ -792,6 +796,9 @@ ggplot() +
         legend.background=element_blank()) 
 ```
 
+-->
+
+<!-- everything above is sandboxing -->
 
 ## Past 40 Years: Proportion of Upwelling
 
